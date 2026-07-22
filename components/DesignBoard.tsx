@@ -398,12 +398,22 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     <div
       className="space-y-4"
       onKeyDown={(e) => {
-        if ((e.key === "Delete" || e.key === "Backspace") && range) {
-          const tag = (e.target as HTMLElement).tagName;
-          if (tag !== "INPUT" && tag !== "SELECT" && tag !== "TEXTAREA") {
-            e.preventDefault();
-            deleteSelection();
-          }
+        if (e.key !== "Delete" && e.key !== "Backspace") return;
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+        e.preventDefault();
+        if (range) {
+          deleteSelection();
+          return;
+        }
+        // No selection: remove the bead just before the insertion point,
+        // i.e. the most recently placed one.
+        const at = Math.min(insertion, beads.length);
+        if (at > 0) {
+          const next = [...beads];
+          next.splice(at - 1, 1);
+          mutateBeads(next);
+          setInsertion(at - 1);
         }
       }}
     >
