@@ -3,12 +3,16 @@
 import { useRef, useState } from "react";
 import { Upload, Eye, Trash2 } from "lucide-react";
 import { addMaterials } from "@/lib/materials";
+import { getSupabase } from "@/lib/supabase";
 import type { ExtractedItem } from "@/lib/types";
 
-// Vercel serverless functions cap request bodies at ~4.5MB, so we keep the
-// base64 payload under 4MB: oversized images get downscaled client-side,
-// oversized PDFs are rejected.
-const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
+// Files go straight to Supabase Storage (bypassing Vercel's ~4.5MB request
+// body cap); the API route receives only the storage path. The bucket caps
+// files at 20MB, which also keeps the Anthropic request under its 32MB limit.
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+// Images larger than this get downscaled client-side anyway — receipts don't
+// need more resolution, and it saves tokens.
+const IMAGE_DOWNSCALE_THRESHOLD = 3 * 1024 * 1024;
 
 interface Props {
   onImported: () => Promise<void>;
@@ -33,15 +37,6 @@ async function downscaleImage(file: File): Promise<Blob> {
   });
 }
 
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve((reader.result as string).split(",")[1]);
-    reader.onerror = () => reject(new Error("Failed to read file"));
-    reader.readAsDataURL(blob);
-  });
-}
-
 export default function ReceiptImport({ onImported }: Props) {
   const [processing, setProcessing] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -60,14 +55,13 @@ export default function ReceiptImport({ onImported }: Props) {
       let blob: Blob = file;
       let mediaType = file.type;
 
+      if (file.size > MAX_UPLOAD_BYTES) {
+        throw new Error("File is too large (max 20MB).");
+      }
       if (file.type === "application/pdf") {
-        if (file.size > MAX_UPLOAD_BYTES) {
-          throw new Error(
-            "PDF is too large (max 3MB). Try exporting a smaller PDF or a photo of the receipt."
-          );
-        }
+        // fine as-is
       } else if (file.type.startsWith("image/")) {
-        if (file.size > MAX_UPLOAD_BYTES) {
+        if (file.size > IMAGE_DOWNSCALE_THRESHOLD) {
           blob = await downscaleImage(file);
           mediaType = "image/jpeg";
         }
@@ -75,11 +69,20 @@ export default function ReceiptImport({ onImported }: Props) {
         throw new Error("Upload an image (PNG, JPG, WebP) or PDF.");
       }
 
-      const data = await blobToBase64(blob);
+      // Upload directly to Supabase Storage, then hand the API route the path.
+      const ext = mediaType === "application/pdf" ? "pdf" : mediaType.split("/")[1];
+      const path = `${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await getSupabase()
+        .storage.from("receipts")
+        .upload(path, blob, { contentType: mediaType });
+      if (uploadError) {
+        throw new Error(`Upload failed: ${uploadError.message}`);
+      }
+
       const response = await fetch("/api/process-receipt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data, mediaType }),
+        body: JSON.stringify({ path, mediaType }),
       });
 
       const result = await response.json();
@@ -144,7 +147,8 @@ export default function ReceiptImport({ onImported }: Props) {
               Upload a receipt image or PDF
             </p>
             <p className="mt-1 text-sm text-gray-500">
-              PNG, JPG, WebP, or PDF — large photos are compressed automatically
+              PNG, JPG, WebP, or PDF up to 20MB — large photos are compressed
+              automatically
             </p>
             <input
               ref={fileInputRef}

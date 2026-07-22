@@ -52,7 +52,7 @@ vercel
 
 Or import the repo at [vercel.com/new](https://vercel.com/new). Either way, add the three environment variables from `.env.example` in the Vercel project settings (all environments), then deploy. Next.js is auto-detected; no extra configuration is needed.
 
-**Note:** Vercel serverless functions cap request bodies at ~4.5MB. The app downscales large receipt photos client-side to stay under the limit; PDFs over 3MB are rejected with a message.
+**Note:** receipt files are uploaded directly to a private Supabase Storage bucket (`receipts`) rather than through the API route, sidestepping Vercel's ~4.5MB request-body cap. The route downloads the file server-side, processes it, and deletes it. Files up to 20MB are supported; large photos are downscaled client-side to save tokens.
 
 ## Architecture
 
