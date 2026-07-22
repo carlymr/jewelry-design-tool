@@ -12,13 +12,9 @@ import {
   ChevronRight,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
+import BeadFilters from "@/components/BeadFilters";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
-import {
-  COLOR_FAMILIES,
-  SIZE_BUCKETS,
-  colorFamilyOf,
-  sizeBucketOf,
-} from "@/lib/bead-visual";
+import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
 import { CATEGORIES, type Material, type NewMaterial } from "@/lib/types";
 
 type SortKey = "name" | "category" | "unit_cost" | "quantity";
@@ -127,6 +123,13 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
     run(() => deleteMaterial(material.id));
   };
 
+  // Leading =, +, -, @ would execute as formulas if the export is opened in
+  // Excel/Sheets; prefix with ' to neutralize (standard CSV-injection guard).
+  const csvField = (s: string) => {
+    const safe = /^[=+\-@]/.test(s) ? `'${s}` : s;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
+
   // CSV format kept compatible with the original tool's exports:
   // Name, Category, Cost Per Unit, Unit, In Stock
   const downloadCSV = () => {
@@ -135,10 +138,10 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
       ["Name", "Category", "Cost Per Unit", "Unit", "In Stock"].join(","),
       ...materials.map((m) =>
         [
-          `"${m.name.replace(/"/g, '""')}"`,
-          `"${m.category.replace(/"/g, '""')}"`,
+          csvField(m.name),
+          csvField(m.category),
           m.unit_cost,
-          `"${m.unit_type.replace(/"/g, '""')}"`,
+          csvField(m.unit_type),
           m.quantity,
         ].join(",")
       ),
@@ -314,30 +317,12 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
             className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md"
           />
         </div>
-        <select
-          value={familyFilter}
-          onChange={(e) => setFamilyFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
-        >
-          <option value="">All colors</option>
-          {COLOR_FAMILIES.map((f) => (
-            <option key={f} value={f}>
-              {f[0].toUpperCase() + f.slice(1)}
-            </option>
-          ))}
-        </select>
-        <select
-          value={sizeFilter}
-          onChange={(e) => setSizeFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
-        >
-          <option value="">All sizes</option>
-          {SIZE_BUCKETS.map((b) => (
-            <option key={b.key} value={b.key}>
-              {b.label}
-            </option>
-          ))}
-        </select>
+        <BeadFilters
+          familyFilter={familyFilter}
+          sizeFilter={sizeFilter}
+          onFamilyChange={setFamilyFilter}
+          onSizeChange={setSizeFilter}
+        />
       </div>
 
       <div className="bg-gray-100 border-b-2 border-gray-200 p-3 rounded-t-lg grid grid-cols-12 gap-3 text-sm font-medium text-gray-700">

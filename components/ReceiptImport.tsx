@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Upload, Eye, Trash2 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
+import { apiHeaders } from "@/lib/api-token";
 import { addMaterials } from "@/lib/materials";
 import { getSupabase } from "@/lib/supabase";
 import type { ExtractedItem } from "@/lib/types";
@@ -82,7 +83,7 @@ export default function ReceiptImport({ onImported }: Props) {
 
       const response = await fetch("/api/process-receipt", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: apiHeaders(),
         body: JSON.stringify({ path, mediaType }),
       });
 

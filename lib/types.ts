@@ -10,8 +10,6 @@ export const CATEGORIES = [
   "Other",
 ] as const;
 
-export type Category = (typeof CATEGORIES)[number];
-
 export interface Material {
   id: string;
   name: string;

@@ -14,6 +14,8 @@ import {
   ZoomOut,
 } from "lucide-react";
 import BeadSwatch, { Bead } from "@/components/BeadSwatch";
+import BeadFilters from "@/components/BeadFilters";
+import { apiHeaders } from "@/lib/api-token";
 import { updateMaterial } from "@/lib/materials";
 import {
   createDesign,
@@ -22,8 +24,6 @@ import {
   updateDesign,
 } from "@/lib/designs";
 import {
-  COLOR_FAMILIES,
-  SIZE_BUCKETS,
   colorFamilyOf,
   sizeBucketOf,
   type BeadVisual,
@@ -38,6 +38,9 @@ const FALLBACK_BEAD_MM = 6;
 const MAX_BEADS = 500;
 const LENGTH_PRESETS_IN = [6, 6.5, 7, 7.5, 8, 9, 16, 18, 20];
 const VISUALS_BATCH = 60;
+// Working-copy draft persisted to localStorage so navigation, reloads, and
+// tab closes can't lose unsaved strand work.
+const DRAFT_KEY = "design-board-draft";
 
 interface Props {
   materials: Material[];
@@ -75,7 +78,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
-  const generationStarted = useRef(false);
+  // Ids we've already requested a visual for, so partial API results don't
+  // retry forever and later-added materials still get picked up.
+  const attemptedVisuals = useRef(new Set<string>());
 
   const materialById = useMemo(
     () => new Map(materials.map((m) => [m.id, m])),
@@ -92,6 +97,45 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     return () => observer.disconnect();
   }, []);
 
+  // --- restore any unsaved draft (must be declared before the persist
+  // effect below: both run on mount, and the restore must read the draft
+  // before the clean-state persist effect clears it) ---
+  const draftRestored = useRef(false);
+  useEffect(() => {
+    if (draftRestored.current) return;
+    draftRestored.current = true;
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (!Array.isArray(draft.beads)) return;
+      setCurrentId(typeof draft.currentId === "string" ? draft.currentId : null);
+      setName(typeof draft.name === "string" ? draft.name : "Untitled design");
+      setTargetMm(typeof draft.targetMm === "number" ? draft.targetMm : 7 * MM_PER_INCH);
+      setBeads(draft.beads);
+      setInsertion(draft.beads.length);
+      setDirty(true);
+    } catch {
+      // A corrupt draft shouldn't break the board.
+    }
+  }, []);
+
+  // --- persist the working copy while dirty; clear it once saved/discarded ---
+  useEffect(() => {
+    try {
+      if (!dirty) {
+        localStorage.removeItem(DRAFT_KEY);
+      } else {
+        localStorage.setItem(
+          DRAFT_KEY,
+          JSON.stringify({ currentId, name, targetMm, beads })
+        );
+      }
+    } catch {
+      // Quota/private-mode failures just lose the safety net, nothing else.
+    }
+  }, [dirty, currentId, name, targetMm, beads]);
+
   // --- load designs ---
   useEffect(() => {
     listDesigns()
@@ -101,10 +145,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
 
   // --- lazy visual generation for beads that never came through a receipt ---
   useEffect(() => {
-    if (generationStarted.current || materials.length === 0) return;
-    const missing = materials.filter((m) => m.category === "Beads" && !m.visual);
+    const missing = materials.filter(
+      (m) => m.category === "Beads" && !m.visual && !attemptedVisuals.current.has(m.id)
+    );
     if (missing.length === 0) return;
-    generationStarted.current = true;
+    missing.forEach((m) => attemptedVisuals.current.add(m.id));
 
     (async () => {
       setGenerating(true);
@@ -113,19 +158,15 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           const batch = missing.slice(i, i + VISUALS_BATCH);
           const res = await fetch("/api/generate-visuals", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: apiHeaders(),
             body: JSON.stringify({
               materials: batch.map((m) => ({ id: m.id, name: m.name })),
             }),
           });
           const result = await res.json();
           if (!res.ok) throw new Error(result.error || `Request failed (${res.status})`);
-          for (const { id, visual } of result.visuals as {
-            id: string;
-            visual: BeadVisual;
-          }[]) {
-            await updateMaterial(id, { visual });
-          }
+          const visuals = result.visuals as { id: string; visual: BeadVisual }[];
+          await Promise.all(visuals.map(({ id, visual }) => updateMaterial(id, { visual })));
         }
         await onMaterialsChanged();
       } catch (e) {
@@ -142,7 +183,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     try {
       const res = await fetch("/api/generate-visuals", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: apiHeaders(),
         body: JSON.stringify({
           materials: [{ id: material.id, name: material.name }],
         }),
@@ -508,7 +549,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           className="flex items-center px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
         >
           <Save className="w-4 h-4 mr-1" />
-          {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+          {saving ? "Saving…" : dirty || !currentId ? "Save" : "Saved"}
         </button>
         {currentId && (
           <button
@@ -746,7 +787,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           <p className="mt-2 text-sm text-gray-500">
             Click a bead in the palette to start the strand. Click a placed bead to
             select it (shift-click for a range), then Repeat or Fill to build a
-            pattern.
+            pattern. Backspace removes the last-placed bead.
           </p>
         )}
       </div>
@@ -773,30 +814,12 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm"
             />
           </div>
-          <select
-            value={familyFilter}
-            onChange={(e) => setFamilyFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
-          >
-            <option value="">All colors</option>
-            {COLOR_FAMILIES.map((f) => (
-              <option key={f} value={f}>
-                {f[0].toUpperCase() + f.slice(1)}
-              </option>
-            ))}
-          </select>
-          <select
-            value={sizeFilter}
-            onChange={(e) => setSizeFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
-          >
-            <option value="">All sizes</option>
-            {SIZE_BUCKETS.map((b) => (
-              <option key={b.key} value={b.key}>
-                {b.label}
-              </option>
-            ))}
-          </select>
+          <BeadFilters
+            familyFilter={familyFilter}
+            sizeFilter={sizeFilter}
+            onFamilyChange={setFamilyFilter}
+            onSizeChange={setSizeFilter}
+          />
         </div>
         {palette.length === 0 ? (
           <p className="text-sm text-gray-500 py-4 text-center">

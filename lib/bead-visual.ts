@@ -57,7 +57,10 @@ export const BeadVisualSchema = z.object({
     .describe(
       "Size in mm perpendicular to the hole axis (the visible diameter/height when strung). For an 8x4mm rondelle this is 8."
     ),
-  color: z.string().describe('Dominant color as a hex string, e.g. "#7a9bac"'),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .describe('Dominant color as a 6-digit hex string, e.g. "#7a9bac"'),
   color_family: z
     .enum(COLOR_FAMILIES)
     .nullable()
@@ -66,9 +69,10 @@ export const BeadVisualSchema = z.object({
     ),
   color_secondary: z
     .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
     .nullable()
     .describe(
-      "Secondary hex color for marbling, speckles, or banding; null for a uniform bead"
+      "Secondary 6-digit hex color for marbling, speckles, or banding; null for a uniform bead"
     ),
   finish: z
     .enum(["matte", "glossy", "metallic", "pearl", "transparent"])
@@ -82,7 +86,6 @@ export const BeadVisualSchema = z.object({
 });
 
 export type BeadVisual = z.infer<typeof BeadVisualSchema>;
-export type BeadShape = (typeof BEAD_SHAPES)[number];
 
 function hexToHsl(hex: string): [number, number, number] {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());

@@ -3,23 +3,27 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { BeadVisualSchema } from "@/lib/bead-visual";
+import { getSupabaseConfig } from "@/lib/supabase-config";
+import { isAuthorized } from "@/lib/api-token";
 
 export const maxDuration = 120;
 
 const RECEIPTS_BUCKET = "receipts";
 
+// Matches exactly what the client generates: crypto.randomUUID() + extension.
+const STORAGE_PATH_RE = /^[0-9a-f-]{36}\.(pdf|jpe?g|png|gif|webp)$/i;
+
 // The route talks to the Storage REST API directly instead of supabase-js:
 // it only needs download + delete, and supabase-js requires a native
-// WebSocket at construction time, which breaks server-side on Node < 22.
+// WebSocket at construction time, which breaks server-side on Node < 22
+// (this project targets Node 24 — see .nvmrc — but keep the route free of
+// supabase-js anyway).
 function storageConfig() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
+  const config = getSupabaseConfig();
+  if (!config) return null;
   return {
-    objectUrl: `${url}/storage/v1/object/${RECEIPTS_BUCKET}`,
-    headers: { Authorization: `Bearer ${key}`, apikey: key },
+    objectUrl: `${config.url}/storage/v1/object/${RECEIPTS_BUCKET}`,
+    headers: { Authorization: `Bearer ${config.key}`, apikey: config.key },
   };
 }
 
@@ -89,6 +93,9 @@ ESTIMATING UNITS:
 Ignore non-material lines like shipping, taxes, and store credit. Only include materials that would be used to make jewelry. If the document doesn't appear to be a receipt or contains no jewelry materials, return an empty items array and explain in notes.`;
 
 export async function POST(request: NextRequest) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
       { error: "ANTHROPIC_API_KEY is not configured on the server." },
@@ -110,7 +117,7 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
-  if (path.includes("..") || path.includes("/")) {
+  if (!STORAGE_PATH_RE.test(path)) {
     return NextResponse.json({ error: "Invalid storage path." }, { status: 400 });
   }
 

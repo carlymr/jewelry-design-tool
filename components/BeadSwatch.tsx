@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { memo, useId } from "react";
 import type { BeadVisual } from "@/lib/bead-visual";
 
 // Renders a bead from its stored visual spec. `Bead` is an SVG <g> at the
@@ -155,8 +155,9 @@ interface BeadProps {
   seed?: string;
 }
 
-/** The bead itself, as a <g> with its top-left at the origin. */
-export function Bead({ visual, pxPerMm, seed = "bead" }: BeadProps) {
+/** The bead itself, as a <g> with its top-left at the origin. Memoized so
+ * strand-wide re-renders (selection, caret moves) skip unchanged beads. */
+export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead" }: BeadProps) {
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
   const L = Math.max(1, visual.length_mm * pxPerMm);
   const W = Math.max(1, visual.width_mm * pxPerMm);
@@ -310,7 +311,7 @@ export function Bead({ visual, pxPerMm, seed = "bead" }: BeadProps) {
       )}
     </g>
   );
-}
+});
 
 interface BeadSwatchProps {
   visual: BeadVisual | null;

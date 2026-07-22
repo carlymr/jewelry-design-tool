@@ -1,30 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import InventoryTable from "@/components/InventoryTable";
 import ReceiptImport from "@/components/ReceiptImport";
-import { listMaterials } from "@/lib/materials";
-import type { Material } from "@/lib/types";
+import { useMaterials } from "@/lib/useMaterials";
 
 export default function InventoryPage() {
-  const [materials, setMaterials] = useState<Material[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
-
-  const refresh = useCallback(async () => {
-    try {
-      setLoadError("");
-      setMaterials(await listMaterials());
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Failed to load materials");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const { materials, loading, loadError, refresh } = useMaterials();
 
   return (
     <main className="max-w-6xl mx-auto p-6">
