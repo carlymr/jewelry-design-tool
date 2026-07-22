@@ -31,18 +31,22 @@ export const BEAD_SHAPES = [
   "bicone",
   "tube",
   "cube",
+  "octagon",
   "oval",
   "teardrop",
   "chip",
   "heishi",
   "seed",
   "nugget",
+  "flower",
 ] as const;
 
 export const BeadVisualSchema = z.object({
   shape: z
     .enum(BEAD_SHAPES)
-    .describe("Closest basic bead shape. Use 'chip' or 'nugget' for irregular stones."),
+    .describe(
+      "Closest basic bead shape. Use 'chip' or 'nugget' for irregular stones, 'octagon' for cornerless/faceted cubes, 'flower' for carved flower or rosebud beads."
+    ),
   length_mm: z
     .number()
     .describe(

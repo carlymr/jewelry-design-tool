@@ -40,6 +40,20 @@ function seededRandom(seed: string): () => number {
   };
 }
 
+/** Scale points so their extent fills [0,L]×[0,W] — keeps irregular shapes
+ * from leaving gaps between beads on the strand. */
+function fillBounds(points: [number, number][], L: number, W: number): [number, number][] {
+  const xs = points.map((p) => p[0]);
+  const ys = points.map((p) => p[1]);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const sx = maxX > minX ? L / (maxX - minX) : 1;
+  const sy = maxY > minY ? W / (maxY - minY) : 1;
+  return points.map(([x, y]) => [(x - minX) * sx, (y - minY) * sy]);
+}
+
 /** Closed smooth path through irregular points (for chips/nuggets). */
 function blobPath(points: [number, number][]): string {
   const n = points.length;
@@ -82,6 +96,28 @@ function shapeElement(visual: BeadVisual, L: number, W: number, rand: () => numb
           <rect x={0} y={0} width={L} height={W} rx={Math.min(L, W) * 0.12} {...props} />
         ),
       };
+    case "octagon": {
+      // Cornerless cube: a square silhouette with the corners cut off.
+      const cx = L * 0.29;
+      const cy = W * 0.29;
+      const pts = `${cx},0 ${L - cx},0 ${L},${cy} ${L},${W - cy} ${L - cx},${W} ${cx},${W} 0,${W - cy} 0,${cy}`;
+      return { el: (props: ShapeProps) => <polygon points={pts} {...props} /> };
+    }
+    case "flower": {
+      // Scalloped outline: alternating outer/inner radii smoothed into petals.
+      const petals = 8;
+      const points: [number, number][] = [];
+      for (let i = 0; i < petals * 2; i++) {
+        const angle = (i / (petals * 2)) * Math.PI * 2;
+        const r = i % 2 === 0 ? 1 : 0.78;
+        points.push([
+          L / 2 + Math.cos(angle) * (L / 2) * r,
+          W / 2 + Math.sin(angle) * (W / 2) * r,
+        ]);
+      }
+      const d = blobPath(fillBounds(points, L, W));
+      return { el: (props: ShapeProps) => <path d={d} {...props} /> };
+    }
     case "teardrop": {
       const r = W * 0.35;
       const d = `M 0 ${W / 2} Q ${L * 0.35} ${W * 0.04} ${L * 0.7} ${W / 2 - r} A ${r} ${r} 0 1 1 ${L * 0.7} ${W / 2 + r} Q ${L * 0.35} ${W * 0.96} 0 ${W / 2} Z`;
@@ -93,13 +129,13 @@ function shapeElement(visual: BeadVisual, L: number, W: number, rand: () => numb
       const points: [number, number][] = [];
       for (let i = 0; i < n; i++) {
         const angle = (i / n) * Math.PI * 2;
-        const jitter = 0.68 + rand() * 0.32;
+        const jitter = 0.78 + rand() * 0.22;
         points.push([
           L / 2 + Math.cos(angle) * (L / 2) * jitter,
           W / 2 + Math.sin(angle) * (W / 2) * jitter,
         ]);
       }
-      const d = blobPath(points);
+      const d = blobPath(fillBounds(points, L, W));
       return { el: (props: ShapeProps) => <path d={d} {...props} /> };
     }
     // round, rondelle, oval, seed
@@ -209,11 +245,39 @@ export function Bead({ visual, pxPerMm, seed = "bead" }: BeadProps) {
     }
   }
 
-  // Inscribed hexagon suggests facets without real geometry.
-  const facetPoints = Array.from({ length: 6 }, (_, i) => {
+  // Suggest facets without real geometry: an inscribed hexagon with short
+  // radial cuts toward the edge; for octagons (cornerless cubes) an inscribed
+  // diamond echoes the corner-cut faces instead.
+  const facetVertices = Array.from({ length: 6 }, (_, i) => {
     const angle = (i / 6) * Math.PI * 2 + Math.PI / 6;
-    return `${L / 2 + Math.cos(angle) * L * 0.33},${W / 2 + Math.sin(angle) * W * 0.33}`;
-  }).join(" ");
+    return [Math.cos(angle), Math.sin(angle)] as const;
+  });
+  const facetOverlay = !visual.faceted ? null : visual.shape === "octagon" ? (
+    <polygon
+      points={`${L / 2},${W * 0.1} ${L * 0.9},${W / 2} ${L / 2},${W * 0.9} ${L * 0.1},${W / 2}`}
+      fill="none"
+      stroke="white"
+      strokeOpacity={0.3}
+      strokeWidth={0.75}
+    />
+  ) : (
+    <g stroke="white" strokeOpacity={0.35} strokeWidth={0.75} fill="none">
+      <polygon
+        points={facetVertices
+          .map(([cx, cy]) => `${L / 2 + cx * L * 0.3},${W / 2 + cy * W * 0.3}`)
+          .join(" ")}
+      />
+      {facetVertices.map(([cx, cy], i) => (
+        <line
+          key={i}
+          x1={L / 2 + cx * L * 0.3}
+          y1={W / 2 + cy * W * 0.3}
+          x2={L / 2 + cx * L * 0.46}
+          y2={W / 2 + cy * W * 0.46}
+        />
+      ))}
+    </g>
+  );
 
   return (
     <g>
@@ -231,15 +295,7 @@ export function Bead({ visual, pxPerMm, seed = "bead" }: BeadProps) {
         strokeWidth={0.75}
       />
       <g clipPath={`url(#${clipId})`}>{patternMarks}</g>
-      {visual.faceted && (
-        <polygon
-          points={facetPoints}
-          fill="none"
-          stroke="white"
-          strokeOpacity={0.35}
-          strokeWidth={0.75}
-        />
-      )}
+      {facetOverlay}
       {(visual.finish === "glossy" ||
         visual.finish === "pearl" ||
         visual.finish === "transparent") && (
