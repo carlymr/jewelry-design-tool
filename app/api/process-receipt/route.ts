@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
+import { BeadVisualSchema } from "@/lib/bead-visual";
 
 export const maxDuration = 120;
 
@@ -47,6 +48,9 @@ const ExtractedItemSchema = z.object({
     .describe("Estimated individual usable units for this variant (bead count, inches, etc.)"),
   unit_type: z.string().describe("Unit of measure: piece, inch, gram, etc."),
   unit_cost: z.number().describe("Price per unit: total_price / estimated_units"),
+  visual: BeadVisualSchema.nullable().describe(
+    "Visual spec for beads, spacers, and other components that would be strung on a strand. Use the product photos on the receipt when present — especially for color and finish. Null for non-strand items (wire, cord, tools, most findings)."
+  ),
 });
 
 const ReceiptExtractionSchema = z.object({
@@ -72,6 +76,11 @@ SPLITTING ASSORTMENTS — this is important:
 
 PRICING:
 - Apply any shop discounts, sales, or percentage-off deals shown on the receipt. If an item shows $30.00 with a 70% shop discount, the price paid was $9.00.
+
+VISUALS:
+- For each bead/spacer/strand-component item, fill in the visual spec. Product photos on the receipt are the best source for color, finish, and pattern — use them when present; otherwise infer from the material name (e.g. ocean jasper is typically mottled sea-green).
+- When splitting an assortment, give each variant its own visual (the "Silver" variants get silver coloring, the 4mm variants get 4mm dimensions, and so on).
+- length_mm is the dimension along the stringing hole (a 8x4mm rondelle advances the strand 4mm); width_mm is the visible diameter.
 
 ESTIMATING UNITS:
 - For bead strands, estimate bead count from strand length and bead size (a 15" strand of 8mm beads is about 48 beads; a 16" strand of 6mm beads is about 67 beads).

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Upload, Eye, Trash2 } from "lucide-react";
+import BeadSwatch from "@/components/BeadSwatch";
 import { addMaterials } from "@/lib/materials";
 import { getSupabase } from "@/lib/supabase";
 import type { ExtractedItem } from "@/lib/types";
@@ -122,6 +123,7 @@ export default function ReceiptImport({ onImported }: Props) {
           quantity: item.estimated_units,
           unit_type: item.unit_type,
           supplier: "",
+          visual: item.visual ?? null,
         }))
       );
       await onImported();
@@ -188,7 +190,18 @@ export default function ReceiptImport({ onImported }: Props) {
                     className="border border-gray-200 rounded-lg p-3 text-sm"
                   >
                     <div className="flex justify-between items-start">
-                      <div className="font-medium text-gray-900">{item.name}</div>
+                      <div className="flex items-center gap-2 min-w-0">
+                        {item.visual && (
+                          <span className="shrink-0">
+                            <BeadSwatch
+                              visual={item.visual}
+                              size={24}
+                              seed={item.name}
+                            />
+                          </span>
+                        )}
+                        <div className="font-medium text-gray-900">{item.name}</div>
+                      </div>
                       <button
                         onClick={() => removeItem(index)}
                         className="text-red-500 hover:text-red-700 p-1"
