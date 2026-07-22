@@ -21,10 +21,18 @@ import {
   listDesigns,
   updateDesign,
 } from "@/lib/designs";
-import type { BeadVisual } from "@/lib/bead-visual";
+import {
+  COLOR_FAMILIES,
+  SIZE_BUCKETS,
+  colorFamilyOf,
+  sizeBucketOf,
+  type BeadVisual,
+} from "@/lib/bead-visual";
 import type { Design, DesignBead, Material } from "@/lib/types";
 
 const MM_PER_INCH = 25.4;
+// CSS reference pixel: 96px per inch, so this renders beads at ~life size.
+const ACTUAL_PX_PER_MM = 96 / MM_PER_INCH;
 // Beads without a generated visual still need to advance the strand somehow.
 const FALLBACK_BEAD_MM = 6;
 const MAX_BEADS = 500;
@@ -56,8 +64,13 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   );
   const [insertion, setInsertion] = useState(0);
   const [repeatCount, setRepeatCount] = useState(3);
-  const [pxPerMm, setPxPerMm] = useState(6);
+  const [zoomMode, setZoomMode] = useState<"fit" | "custom">("fit");
+  const [customPx, setCustomPx] = useState(6);
+  const [containerW, setContainerW] = useState(1100);
+  const boardRef = useRef<HTMLDivElement>(null);
   const [paletteSearch, setPaletteSearch] = useState("");
+  const [familyFilter, setFamilyFilter] = useState("");
+  const [sizeFilter, setSizeFilter] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -68,6 +81,16 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     () => new Map(materials.map((m) => [m.id, m])),
     [materials]
   );
+
+  // Track the board's width so fit-to-screen can compute a scale.
+  useEffect(() => {
+    const el = boardRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setContainerW(el.clientWidth));
+    observer.observe(el);
+    setContainerW(el.clientWidth);
+    return () => observer.disconnect();
+  }, []);
 
   // --- load designs ---
   useEffect(() => {
@@ -144,8 +167,10 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     return materials
       .filter((m) => m.category === "Beads" || m.visual)
       .filter((m) => m.name.toLowerCase().includes(term))
+      .filter((m) => !familyFilter || colorFamilyOf(m.visual) === familyFilter)
+      .filter((m) => !sizeFilter || sizeBucketOf(m.visual) === sizeFilter)
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [materials, paletteSearch]);
+  }, [materials, paletteSearch, familyFilter, sizeFilter]);
 
   // --- derived strand geometry ---
   const strand = useMemo(() => {
@@ -330,12 +355,19 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
 
   // --- strand rendering constants ---
   const maxWidthMm = Math.max(10, ...strand.placed.map((p) => beadWidthMm(p.material)));
-  const strandHeight = maxWidthMm * pxPerMm + 16;
   const rulerHeight = 34;
   const marginLeft = 24;
   const boardMm = Math.max(targetMm, strand.totalMm) + 30;
+  const fitPx = Math.min(12, Math.max(0.8, (containerW - marginLeft - 24) / boardMm));
+  const pxPerMm = zoomMode === "fit" ? fitPx : customPx;
+  const strandHeight = maxWidthMm * pxPerMm + 16;
   const boardWidth = marginLeft + boardMm * pxPerMm + 24;
   const centerY = 8 + (maxWidthMm * pxPerMm) / 2;
+
+  const zoomBy = (factor: number) => {
+    setZoomMode("custom");
+    setCustomPx(Math.min(14, Math.max(1, pxPerMm * factor)));
+  };
 
   const inchTicks = useMemo(() => {
     const ticks: { xMm: number; major: boolean; label?: string }[] = [];
@@ -419,17 +451,42 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             )}
           </select>
         </label>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 bg-white border border-gray-300 rounded-md p-0.5">
           <button
-            onClick={() => setPxPerMm(Math.max(3, pxPerMm - 1.5))}
-            className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-200 rounded"
+            onClick={() => setZoomMode("fit")}
+            className={`px-2 py-1.5 text-xs rounded ${
+              zoomMode === "fit"
+                ? "bg-purple-100 text-purple-700 font-medium"
+                : "text-gray-500 hover:text-gray-900"
+            }`}
+            title="Scale the whole strand to fit the screen"
+          >
+            Fit
+          </button>
+          <button
+            onClick={() => {
+              setZoomMode("custom");
+              setCustomPx(ACTUAL_PX_PER_MM);
+            }}
+            className={`px-2 py-1.5 text-xs rounded ${
+              zoomMode === "custom" && Math.abs(customPx - ACTUAL_PX_PER_MM) < 0.01
+                ? "bg-purple-100 text-purple-700 font-medium"
+                : "text-gray-500 hover:text-gray-900"
+            }`}
+            title="Real size (approximate, assumes a standard 96dpi screen)"
+          >
+            1:1
+          </button>
+          <button
+            onClick={() => zoomBy(1 / 1.25)}
+            className="p-1.5 text-gray-500 hover:text-gray-900 rounded"
             title="Zoom out"
           >
             <ZoomOut className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setPxPerMm(Math.min(12, pxPerMm + 1.5))}
-            className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-200 rounded"
+            onClick={() => zoomBy(1.25)}
+            className="p-1.5 text-gray-500 hover:text-gray-900 rounded"
             title="Zoom in"
           >
             <ZoomIn className="w-4 h-4" />
@@ -462,7 +519,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
 
       {/* Strand board */}
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-        <div className="overflow-x-auto" tabIndex={0}>
+        <div className="overflow-x-auto" tabIndex={0} ref={boardRef}>
           <svg
             width={boardWidth}
             height={strandHeight + rulerHeight}
@@ -695,15 +752,41 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             </span>
           )}
         </div>
-        <div className="mb-3 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <input
-            type="text"
-            placeholder="Search beads…"
-            value={paletteSearch}
-            onChange={(e) => setPaletteSearch(e.target.value)}
-            className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm"
-          />
+        <div className="mb-3 flex flex-wrap gap-2">
+          <div className="relative flex-1 min-w-48">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <input
+              type="text"
+              placeholder="Search beads…"
+              value={paletteSearch}
+              onChange={(e) => setPaletteSearch(e.target.value)}
+              className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm"
+            />
+          </div>
+          <select
+            value={familyFilter}
+            onChange={(e) => setFamilyFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+          >
+            <option value="">All colors</option>
+            {COLOR_FAMILIES.map((f) => (
+              <option key={f} value={f}>
+                {f[0].toUpperCase() + f.slice(1)}
+              </option>
+            ))}
+          </select>
+          <select
+            value={sizeFilter}
+            onChange={(e) => setSizeFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+          >
+            <option value="">All sizes</option>
+            {SIZE_BUCKETS.map((b) => (
+              <option key={b.key} value={b.key}>
+                {b.label}
+              </option>
+            ))}
+          </select>
         </div>
         {palette.length === 0 ? (
           <p className="text-sm text-gray-500 py-4 text-center">
@@ -726,7 +809,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                     <BeadSwatch visual={m.visual} size={32} seed={m.id} />
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm text-gray-900 truncate">
+                    <span className="block text-sm text-gray-900 leading-snug">
                       {m.name}
                     </span>
                     <span className="block text-xs text-gray-500">

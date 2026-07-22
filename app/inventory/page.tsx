@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import DesignBoard from "@/components/DesignBoard";
+import InventoryTable from "@/components/InventoryTable";
+import ReceiptImport from "@/components/ReceiptImport";
 import { listMaterials } from "@/lib/materials";
 import type { Material } from "@/lib/types";
 
-export default function DesignPage() {
+export default function InventoryPage() {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -27,10 +28,10 @@ export default function DesignPage() {
 
   return (
     <main className="max-w-6xl mx-auto p-6">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Design Board</h1>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Inventory</h1>
         <p className="text-gray-600">
-          Lay out a strand from your inventory before stringing
+          Materials inventory with AI-powered receipt import
         </p>
       </div>
 
@@ -40,11 +41,14 @@ export default function DesignPage() {
         </div>
       )}
 
-      {loading ? (
-        <div className="text-center py-12 text-gray-500">Loading inventory…</div>
-      ) : (
-        <DesignBoard materials={materials} onMaterialsChanged={refresh} />
-      )}
+      <div className="space-y-6">
+        <ReceiptImport onImported={refresh} />
+        <InventoryTable
+          materials={materials}
+          loading={loading}
+          onChanged={refresh}
+        />
+      </div>
     </main>
   );
 }

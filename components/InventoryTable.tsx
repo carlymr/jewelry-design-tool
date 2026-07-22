@@ -1,11 +1,29 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { Plus, Trash2, Upload, Download, Database, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Plus,
+  Trash2,
+  Upload,
+  Download,
+  Database,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
+import BeadSwatch from "@/components/BeadSwatch";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
+import {
+  COLOR_FAMILIES,
+  SIZE_BUCKETS,
+  colorFamilyOf,
+  sizeBucketOf,
+} from "@/lib/bead-visual";
 import { CATEGORIES, type Material, type NewMaterial } from "@/lib/types";
 
 type SortKey = "name" | "category" | "unit_cost" | "quantity";
+
+const PAGE_SIZE = 25;
 
 const EMPTY_FORM: NewMaterial = {
   name: "",
@@ -26,6 +44,9 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [familyFilter, setFamilyFilter] = useState("");
+  const [sizeFilter, setSizeFilter] = useState("");
+  const [page, setPage] = useState(0);
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState<NewMaterial>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
@@ -34,12 +55,15 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
 
   const sorted = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    const filtered = materials.filter(
-      (m) =>
-        m.name.toLowerCase().includes(term) ||
-        m.category.toLowerCase().includes(term) ||
-        m.supplier.toLowerCase().includes(term)
-    );
+    const filtered = materials
+      .filter(
+        (m) =>
+          m.name.toLowerCase().includes(term) ||
+          m.category.toLowerCase().includes(term) ||
+          m.supplier.toLowerCase().includes(term)
+      )
+      .filter((m) => !familyFilter || colorFamilyOf(m.visual) === familyFilter)
+      .filter((m) => !sizeFilter || sizeBucketOf(m.visual) === sizeFilter);
     return [...filtered].sort((a, b) => {
       const av = a[sortBy];
       const bv = b[sortBy];
@@ -49,7 +73,15 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
           : String(av).toLowerCase().localeCompare(String(bv).toLowerCase());
       return sortOrder === "asc" ? cmp : -cmp;
     });
-  }, [materials, searchTerm, sortBy, sortOrder]);
+  }, [materials, searchTerm, familyFilter, sizeFilter, sortBy, sortOrder]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [searchTerm, familyFilter, sizeFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const paged = sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   const toggleSort = (key: SortKey) => {
     if (sortBy === key) {
@@ -271,15 +303,41 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
         </div>
       )}
 
-      <div className="mb-4 relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-        <input
-          type="text"
-          placeholder="Search materials..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md"
-        />
+      <div className="mb-4 flex flex-wrap gap-2">
+        <div className="relative flex-1 min-w-56">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <input
+            type="text"
+            placeholder="Search materials..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md"
+          />
+        </div>
+        <select
+          value={familyFilter}
+          onChange={(e) => setFamilyFilter(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+        >
+          <option value="">All colors</option>
+          {COLOR_FAMILIES.map((f) => (
+            <option key={f} value={f}>
+              {f[0].toUpperCase() + f.slice(1)}
+            </option>
+          ))}
+        </select>
+        <select
+          value={sizeFilter}
+          onChange={(e) => setSizeFilter(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+        >
+          <option value="">All sizes</option>
+          {SIZE_BUCKETS.map((b) => (
+            <option key={b.key} value={b.key}>
+              {b.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="bg-gray-100 border-b-2 border-gray-200 p-3 rounded-t-lg grid grid-cols-12 gap-3 text-sm font-medium text-gray-700">
@@ -312,12 +370,19 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
       </div>
 
       <div className="bg-white border border-t-0 rounded-b-lg">
-        {sorted.map((material) => (
+        {paged.map((material) => (
           <div
             key={material.id}
             className="grid grid-cols-12 gap-3 p-3 border-b border-gray-100 hover:bg-gray-50 last:border-b-0 items-center"
           >
-            <div className="col-span-4 text-sm text-gray-900">{material.name}</div>
+            <div className="col-span-4 text-sm text-gray-900 flex items-center gap-2 min-w-0">
+              <span className="w-6 flex justify-center shrink-0">
+                {material.visual && (
+                  <BeadSwatch visual={material.visual} size={22} seed={material.id} />
+                )}
+              </span>
+              <span className="min-w-0 wrap-break-word leading-snug">{material.name}</span>
+            </div>
             <div className="col-span-2 text-sm text-gray-600">{material.category}</div>
             <div className="col-span-2 text-sm text-gray-900">
               ${material.unit_cost.toFixed(2)}
@@ -371,8 +436,39 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
         )}
       </div>
 
-      <div className="mt-4 text-sm text-gray-500">
-        Showing {sorted.length} of {materials.length} materials
+      <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
+        <span>
+          Showing{" "}
+          {sorted.length === 0
+            ? 0
+            : `${safePage * PAGE_SIZE + 1}–${Math.min(
+                (safePage + 1) * PAGE_SIZE,
+                sorted.length
+              )}`}{" "}
+          of {sorted.length} materials
+          {sorted.length !== materials.length && ` (${materials.length} total)`}
+        </span>
+        {pageCount > 1 && (
+          <span className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(Math.max(0, safePage - 1))}
+              disabled={safePage === 0}
+              className="p-1.5 border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Previous page"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            Page {safePage + 1} of {pageCount}
+            <button
+              onClick={() => setPage(Math.min(pageCount - 1, safePage + 1))}
+              disabled={safePage >= pageCount - 1}
+              className="p-1.5 border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Next page"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </span>
+        )}
       </div>
     </div>
   );
