@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- A glossy amethyst bead, face-on with its stringing hole -->
+  <defs>
+    <radialGradient id="bead" cx="35%" cy="30%" r="80%">
+      <stop offset="0%" stop-color="#d8b4fe"/>
+      <stop offset="45%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#6b21a8"/>
+    </radialGradient>
+    <radialGradient id="hole" cx="40%" cy="35%" r="80%">
+      <stop offset="0%" stop-color="#581c87"/>
+      <stop offset="100%" stop-color="#2e1065"/>
+    </radialGradient>
+  </defs>
+  <circle cx="16" cy="16" r="15" fill="url(#bead)" stroke="#581c87" stroke-width="1"/>
+  <circle cx="16" cy="16" r="3.4" fill="url(#hole)"/>
+  <ellipse cx="10.5" cy="9" rx="4.5" ry="3" fill="white" opacity="0.55" transform="rotate(-25 10.5 9)"/>
+</svg>

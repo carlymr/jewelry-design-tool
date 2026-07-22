@@ -15,7 +15,9 @@ There is no test suite or lint config yet. Node 24 is required (`.nvmrc`); supab
 
 ## What this is
 
-Materials inventory + AI receipt processing for a strung-jewelry business. Single-user tool (no auth yet). Extracted from an earlier Claude-artifact prototype; the artifact's pricing calculator and Etsy listing generator were intentionally left behind and may be rebuilt later.
+Virtual beading board + materials inventory + AI receipt processing for a strung-jewelry business. Single-user tool (no auth yet). Extracted from an earlier Claude-artifact prototype; the artifact's pricing calculator and Etsy listing generator were intentionally left behind and may be rebuilt later.
+
+The design board (`components/DesignBoard.tsx`, home page) lays out strands true to scale from stored per-bead visual specs (`lib/bead-visual.ts` schema, rendered by `components/BeadSwatch.tsx`). Visuals are generated once and stored in `materials.visual`: the receipt route emits them photo-informed during extraction; `app/api/generate-visuals/route.ts` backfills name-only for everything else (triggered lazily when the board loads). Both routes share the same Zod schema — keep them in sync through `lib/bead-visual.ts`.
 
 Deployed on Vercel (project `jewelry-design-tool`, personal account) from pushes to `main`. Supabase project: `supabase-green-zebra` (`fzoezwgejhcurlwnshcb`), provisioned through the Vercel marketplace.
 
@@ -23,7 +25,7 @@ Deployed on Vercel (project `jewelry-design-tool`, personal account) from pushes
 
 Two independent data paths:
 
-1. **Inventory CRUD** — browser talks to Supabase directly via `supabase-js` (`lib/materials.ts` → `lib/supabase.ts`). No API routes involved. RLS is enabled but deliberately permissive (single-user); tighten policies when auth is added.
+1. **Inventory + designs CRUD** — browser talks to Supabase directly via `supabase-js` (`lib/materials.ts`, `lib/designs.ts` → `lib/supabase.ts`). No API routes involved; even generated visuals are written by the client after the API route returns them. RLS is enabled but deliberately permissive (single-user); tighten policies when auth is added.
 
 2. **Receipt processing** — three hops, shaped by two hard constraints:
    - Client uploads the file **directly to the private `receipts` Storage bucket** (`components/ReceiptImport.tsx`), because Vercel serverless functions cap request bodies at ~4.5MB. Never route file uploads through an API route.
