@@ -589,6 +589,12 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const curveWidthPx = (curve.widthMm + curvePadMm * 2) * pxPerMm;
   const curveHeightPx = (curve.heightMm + curvePadMm * 2) * pxPerMm;
 
+  // Necklaces are built center-out and worn symmetric, so the strand is
+  // centered on the worn curve: its midpoint sits at the drape's lowest
+  // point (or the bracelet's bottom), with bare string split evenly across
+  // both ends. Zero when the strand fills or overruns the curve.
+  const wornOffsetMm = layout === "curve" ? (curve.curveMm - strand.totalMm) / 2 : 0;
+
   /** Position of arc length s on the worn curve, in svg px. */
   const curvePointPx = (sMm: number) => {
     const p = curve.pointAt(Math.min(Math.max(sMm, 0), curve.curveMm));
@@ -628,7 +634,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
    * origin at the element center, x along the given direction. */
   const frameAt = (centerS: number, rotation: "tangent" | "hang") => {
     if (layout === "curve") {
-      const pt = curvePointPx(centerS);
+      const pt = curvePointPx(centerS + wornOffsetMm);
       const deg = rotation === "tangent" ? pt.tangentDeg : pt.hangDeg - 90;
       return `translate(${pt.x}, ${pt.y}) rotate(${deg})`;
     }
@@ -675,7 +681,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         ? curve.arcLengthAt(
             (clientX - rect.left - curveOffPx) / pxPerMm,
             (clientY - rect.top - curveOffPx) / pxPerMm
-          )
+          ) - wornOffsetMm
         : (clientX - rect.left - marginLeft) / pxPerMm;
     let gap = 0;
     for (const p of strand.placed) {
@@ -974,15 +980,30 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               );
             })}
 
-            {/* target marker when the strand overruns it (line mode has the
-                ruler's dashed marker instead) */}
-            {layout === "curve" &&
-              strand.totalMm > targetMm &&
-              curveTick(targetMm, "#dc2626", 1.5, 6, "4 3")}
+            {/* symmetric target markers when the centered strand overruns
+                it (line mode has the ruler's dashed marker instead) */}
+            {layout === "curve" && strand.totalMm > targetMm && (
+              <>
+                {curveTick(
+                  wornOffsetMm + (strand.totalMm - targetMm) / 2,
+                  "#dc2626",
+                  1.5,
+                  6,
+                  "4 3"
+                )}
+                {curveTick(
+                  wornOffsetMm + strand.totalMm - (strand.totalMm - targetMm) / 2,
+                  "#dc2626",
+                  1.5,
+                  6,
+                  "4 3"
+                )}
+              </>
+            )}
 
             {/* insertion caret */}
             {layout === "curve" ? (
-              curveTick(sAtGap(insertion), "#a855f7", 2, 4)
+              curveTick(sAtGap(insertion) + wornOffsetMm, "#a855f7", 2, 4)
             ) : (
               <line
                 x1={insertionX}
@@ -997,7 +1018,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             {/* drop indicator while dragging */}
             {dropIndex !== null &&
               (layout === "curve" ? (
-                curveTick(sAtGap(dropIndex), "#16a34a", 2.5, 6)
+                curveTick(sAtGap(dropIndex) + wornOffsetMm, "#16a34a", 2.5, 6)
               ) : (
                 <line
                   x1={dropX ?? 0}
