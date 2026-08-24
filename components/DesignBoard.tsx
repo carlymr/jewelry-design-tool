@@ -351,17 +351,30 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   };
 
   // --- drag to rearrange ---
-  const handleBeadPointerDown = (index: number, clientX: number) => {
+  const handleBeadPointerDown = (index: number, e: React.PointerEvent) => {
+    // Capture so the drag keeps tracking even when the pointer wobbles off
+    // the strand-hugging svg (which would otherwise abort it).
+    try {
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    } catch {
+      // Synthetic events without a live pointer can't be captured; the drag
+      // still works as long as the pointer stays over the svg.
+    }
     // Dragging a bead inside the current selection moves the whole run.
     const inSelection = range && index >= range.start && index <= range.end;
     dragRef.current = inSelection
-      ? { start: range.start, end: range.end, startX: clientX, moved: false }
-      : { start: index, end: index, startX: clientX, moved: false };
+      ? { start: range.start, end: range.end, startX: e.clientX, moved: false }
+      : { start: index, end: index, startX: e.clientX, moved: false };
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
-    if (!d || e.buttons === 0) return;
+    if (!d) return;
+    if (e.buttons === 0) {
+      // The release happened somewhere we never saw a pointerup.
+      cancelDrag();
+      return;
+    }
     // A few px of slop so ordinary clicks don't register as drags.
     if (!d.moved && Math.abs(e.clientX - d.startX) < 5) return;
     d.moved = true;
@@ -400,6 +413,53 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     mutateBeads(rest);
     setSelection({ anchor: at, focus: at + block.length - 1 });
     setInsertion(at + block.length);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    if (e.key === "Escape") {
+      setSelection(null);
+      return;
+    }
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const delta = e.key === "ArrowRight" ? 1 : -1;
+      if (e.shiftKey) {
+        if (beads.length === 0) return;
+        const hi = beads.length - 1;
+        if (selection) {
+          const focus = clampIndex(selection.focus + delta, hi);
+          setSelection({ anchor: selection.anchor, focus });
+          // The caret follows the selection's active (focus) edge.
+          setInsertion(focus >= selection.anchor ? focus + 1 : focus);
+        } else {
+          // Start selecting from the bead beside the caret.
+          const idx = clampIndex(delta === 1 ? insertion : insertion - 1, hi);
+          setSelection({ anchor: idx, focus: idx });
+          setInsertion(delta === 1 ? idx + 1 : idx);
+        }
+      } else {
+        setSelection(null);
+        setInsertion(clampIndex(insertion + delta, beads.length));
+      }
+      return;
+    }
+    if (e.key !== "Delete" && e.key !== "Backspace") return;
+    e.preventDefault();
+    if (range) {
+      deleteSelection();
+      return;
+    }
+    // No selection: remove the bead just before the insertion point,
+    // i.e. the most recently placed one.
+    const at = Math.min(insertion, beads.length);
+    if (at > 0) {
+      const next = [...beads];
+      next.splice(at - 1, 1);
+      mutateBeads(next);
+      setInsertion(at - 1);
+    }
   };
 
   // --- design persistence ---
@@ -534,51 +594,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   return (
     <div
       className="space-y-4"
-      onKeyDown={(e) => {
-        const tag = (e.target as HTMLElement).tagName;
-        if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-        if (e.key === "Escape") {
-          setSelection(null);
-          return;
-        }
-        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-          e.preventDefault();
-          const delta = e.key === "ArrowRight" ? 1 : -1;
-          if (e.shiftKey) {
-            if (beads.length === 0) return;
-            const hi = beads.length - 1;
-            if (selection) {
-              const focus = clampIndex(selection.focus + delta, hi);
-              setSelection({ anchor: selection.anchor, focus });
-              setInsertion(Math.max(selection.anchor, focus) + 1);
-            } else {
-              // Start selecting from the bead beside the caret.
-              const idx = clampIndex(delta === 1 ? insertion : insertion - 1, hi);
-              setSelection({ anchor: idx, focus: idx });
-              setInsertion(idx + 1);
-            }
-          } else {
-            setSelection(null);
-            setInsertion(clampIndex(insertion + delta, beads.length));
-          }
-          return;
-        }
-        if (e.key !== "Delete" && e.key !== "Backspace") return;
-        e.preventDefault();
-        if (range) {
-          deleteSelection();
-          return;
-        }
-        // No selection: remove the bead just before the insertion point,
-        // i.e. the most recently placed one.
-        const at = Math.min(insertion, beads.length);
-        if (at > 0) {
-          const next = [...beads];
-          next.splice(at - 1, 1);
-          mutateBeads(next);
-          setInsertion(at - 1);
-        }
-      }}
+      onKeyDown={handleKeyDown}
     >
       {/* Design toolbar */}
       <div className="bg-gray-50 p-4 rounded-lg flex flex-wrap items-center gap-3">
@@ -700,8 +716,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             onClick={handleBoardClick}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            onPointerLeave={cancelDrag}
-            className="block cursor-default"
+            onPointerCancel={cancelDrag}
+            className="block cursor-default touch-none"
           >
             {/* string */}
             <line
@@ -726,7 +742,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                     e.stopPropagation();
                     handleBeadClick(p.index, e.shiftKey);
                   }}
-                  onPointerDown={(e) => handleBeadPointerDown(p.index, e.clientX)}
+                  onPointerDown={(e) => handleBeadPointerDown(p.index, e)}
                   className="cursor-grab active:cursor-grabbing"
                 >
                   {selected && (
@@ -922,15 +938,21 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           </div>
         )}
 
-        {beads.length === 0 && (
-          <p className="mt-2 text-sm text-gray-500">
-            Click a bead in the palette to start the strand. Click a placed bead to
-            select it (shift-click for a range), then Repeat or Fill to build a
-            pattern. Drag beads to rearrange; click between beads to move the
-            insertion point. Arrow keys move it too (Shift+arrows select);
-            Backspace removes the last-placed bead, Esc clears the selection.
-          </p>
-        )}
+        <p className="mt-2 text-sm text-gray-500">
+          {beads.length === 0 ? (
+            <>
+              Click a bead in the palette to start the strand. Click a placed
+              bead to select it (shift-click for a range), then Repeat or Fill
+              to build a pattern.
+            </>
+          ) : (
+            <>
+              Drag beads to rearrange · click between beads or use arrow keys to
+              move the insertion point (Shift+arrows select, Esc clears) ·
+              Backspace removes the last-placed bead.
+            </>
+          )}
+        </p>
       </div>
 
       {/* Palette */}
