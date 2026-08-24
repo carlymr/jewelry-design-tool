@@ -32,8 +32,9 @@ const ListingSchema = z.object({
     ),
   tags: z
     .array(z.string().describe("Etsy SEO tag, 20 characters or fewer, lowercase"))
-    .length(13)
-    .describe("Exactly 13 tags"),
+    .min(8)
+    .max(13)
+    .describe("13 tags (Etsy's cap) whenever possible"),
 });
 
 const DEFAULT_STYLE =

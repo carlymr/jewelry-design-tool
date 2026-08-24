@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Copy,
   DollarSign,
@@ -24,6 +24,17 @@ import type {
 const MM_PER_INCH = 25.4;
 const FALLBACK_BEAD_MM = 6;
 const SETTINGS_KEY = "pricing-settings";
+// Working-copy draft persisted to localStorage so a design switch, reload, or
+// tab close can't lose an unsaved (and paid-for) generated listing — same
+// safety net as the design board's strand draft.
+const DRAFT_KEY = "pricing-draft";
+
+interface PricingDraft {
+  selectedId: string | null;
+  laborHours: string;
+  extras: DesignExtra[];
+  listing: DesignListing | null;
+}
 
 // Business-wide knobs, shared across designs (kept as strings so inputs can
 // be cleared while typing, like the original artifact tool).
@@ -82,6 +93,34 @@ export default function PricingStudio({ materials }: Props) {
     setSettings(loadSettings());
   }, []);
 
+  // --- read any unsaved draft (must be declared before the persist effect:
+  // both run on mount, and the clean-state persist would clear it first) ---
+  const draftRef = useRef<PricingDraft | null>(null);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) draftRef.current = JSON.parse(raw);
+    } catch {
+      // A corrupt draft shouldn't break the page.
+    }
+  }, []);
+
+  // --- persist the working copy while dirty; clear it once saved/discarded ---
+  useEffect(() => {
+    try {
+      if (!dirty) {
+        localStorage.removeItem(DRAFT_KEY);
+      } else {
+        localStorage.setItem(
+          DRAFT_KEY,
+          JSON.stringify({ selectedId, laborHours, extras, listing })
+        );
+      }
+    } catch {
+      // Quota/private-mode failures just lose the safety net, nothing else.
+    }
+  }, [dirty, selectedId, laborHours, extras, listing]);
+
   const updateSettings = (fields: Partial<Settings>) => {
     const next = { ...settings, ...fields };
     setSettings(next);
@@ -101,6 +140,7 @@ export default function PricingStudio({ materials }: Props) {
     setListing(design.listing);
     setDirty(false);
     setShowExtraSearch(false);
+    setError("");
   };
 
   useEffect(() => {
@@ -108,7 +148,19 @@ export default function PricingStudio({ materials }: Props) {
       .then((loaded) => {
         setDesigns(loaded);
         setDesignsLoaded(true);
-        if (loaded.length > 0) applyDesign(loaded[0]);
+        const draft = draftRef.current;
+        const draftDesign = draft?.selectedId
+          ? loaded.find((d) => d.id === draft.selectedId)
+          : undefined;
+        if (draft && draftDesign) {
+          applyDesign(draftDesign);
+          if (typeof draft.laborHours === "string") setLaborHours(draft.laborHours);
+          if (Array.isArray(draft.extras)) setExtras(draft.extras);
+          if (draft.listing !== undefined) setListing(draft.listing);
+          setDirty(true);
+        } else if (loaded.length > 0) {
+          applyDesign(loaded[0]);
+        }
       })
       .catch((e) =>
         setError(e instanceof Error ? e.message : "Failed to load designs")
@@ -119,7 +171,13 @@ export default function PricingStudio({ materials }: Props) {
   const design = designs.find((d) => d.id === selectedId) ?? null;
 
   const switchDesign = (id: string) => {
-    if (dirty && !confirm("Discard unsaved pricing/listing changes?")) return;
+    if (
+      dirty &&
+      !confirm(
+        `Discard unsaved pricing/listing changes for "${design?.name ?? "this design"}"?`
+      )
+    )
+      return;
     const next = designs.find((d) => d.id === id);
     if (next) applyDesign(next);
   };
@@ -205,6 +263,12 @@ export default function PricingStudio({ materials }: Props) {
     setDirty(true);
   };
 
+  // Deleted inventory items price as $0, which silently understates the
+  // totals — surface it once, above the materials list.
+  const missingCount =
+    beadUsage.filter((u) => !u.material).length +
+    extras.filter((e) => !materialById.get(e.material_id)).length;
+
   const extraCandidates = useMemo(() => {
     const term = extraSearch.toLowerCase();
     return materials
@@ -219,6 +283,8 @@ export default function PricingStudio({ materials }: Props) {
   // --- listing generation ---
   const generateListing = async () => {
     if (!design) return;
+    if (listing && !confirm("Replace the current listing? Any edits to it will be lost."))
+      return;
     setGenerating(true);
     setError("");
     try {
@@ -349,6 +415,13 @@ export default function PricingStudio({ materials }: Props) {
       {/* Materials from the design */}
       <div className="bg-gray-50 p-6 rounded-lg">
         <h2 className="text-xl font-semibold mb-4">Materials Used</h2>
+        {missingCount > 0 && (
+          <div className="mb-3 px-3 py-2 bg-amber-100 border border-amber-300 text-amber-800 rounded text-sm">
+            {missingCount} material{missingCount > 1 ? "s" : ""} in this design{" "}
+            {missingCount > 1 ? "are" : "is"} no longer in inventory and priced
+            as $0 — totals below understate the real cost.
+          </div>
+        )}
         {beadUsage.length === 0 && extras.length === 0 && (
           <p className="text-sm text-gray-500 mb-3">
             This design has no beads yet — add some on the Design Board.
@@ -667,11 +740,11 @@ export default function PricingStudio({ materials }: Props) {
                 ${listing.price.toFixed(2)}
               </div>
               {Math.abs(listing.price - costs.sellingPrice) > 0.005 && (
-                <p className="text-xs text-gray-600 mt-1">
-                  Current calculator suggests ${costs.sellingPrice.toFixed(2)} —
-                  regenerate or{" "}
+                <p className="text-sm mt-2 px-3 py-2 bg-amber-100 border border-amber-300 text-amber-800 rounded">
+                  Out of date — the calculator now suggests $
+                  {costs.sellingPrice.toFixed(2)}. Regenerate or{" "}
                   <button
-                    className="underline text-purple-700"
+                    className="underline font-medium"
                     onClick={() => updateListing({ price: costs.sellingPrice })}
                   >
                     update the price

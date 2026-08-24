@@ -28,6 +28,12 @@ Every bead gets a stored visual spec — shape, dimensions along/across the stra
 - **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries, estimating bead counts from strand lengths — into an editable preview before importing
 - **CSV import/export** compatible with the original artifact tool (`Name, Category, Cost Per Unit, Unit, In Stock`)
 
+### Pricing & listing
+
+- **Cost breakdown from actual designs**: pick a saved design and its exact bead composition (plus manually-added extras like clasps and wire) becomes the materials cost — no re-entry
+- **Pricing calculator**: labor hours × hourly rate, overhead %, and markup % produce total cost, selling price, and profit; business-wide rates persist across designs
+- **Etsy listing generator**: Claude drafts an SEO title, description, and tags from the real composition, length, and price — fully editable, with copy/download, and saved with the design
+
 ## Setup
 
 ### 1. Supabase
@@ -48,7 +54,7 @@ cp .env.example .env.local
 | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Browser — inventory and design reads/writes |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Browser — same (`sb_publishable_...`; legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` works as a fallback) |
-| `ANTHROPIC_API_KEY` | Server only — receipt processing and visual generation routes |
+| `ANTHROPIC_API_KEY` | Server only — receipt processing, visual generation, and listing generation routes |
 
 ### 3. Run locally
 
@@ -71,13 +77,16 @@ Import the repo at [vercel.com/new](https://vercel.com/new) (or `vercel` from th
 app/
   page.tsx                     # design board (home)
   inventory/page.tsx           # inventory + receipt import
+  pricing/page.tsx             # pricing calculator + listing generator
   api/process-receipt/route.ts # receipt extraction via Claude (+ photo-informed visuals)
   api/generate-visuals/route.ts# name-only visual generation (batch fallback)
+  api/generate-listing/route.ts# Etsy listing draft from a design's composition
 components/
   DesignBoard.tsx              # strand, ruler, palette, pattern tools, totals
   BeadSwatch.tsx               # SVG bead renderer (shapes, finishes, patterns)
   InventoryTable.tsx           # table, filters, pagination, CSV import/export
   ReceiptImport.tsx            # upload, extraction preview, import to DB
+  PricingStudio.tsx            # design costs, extras, labor/markup, listing
 lib/
   bead-visual.ts               # visual spec schema + color/size helpers
   designs.ts / materials.ts    # Supabase CRUD
