@@ -71,6 +71,18 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const [customPx, setCustomPx] = useState(6);
   const [containerW, setContainerW] = useState(1100);
   const boardRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  // Drag-to-rearrange: the bead range in flight (mutated, not state — only
+  // dropIndex needs to re-render) and a flag to swallow the click that fires
+  // after a drag's pointerup.
+  const dragRef = useRef<{
+    start: number;
+    end: number;
+    startX: number;
+    moved: boolean;
+  } | null>(null);
+  const didDragRef = useRef(false);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [paletteSearch, setPaletteSearch] = useState("");
   const [familyFilter, setFamilyFilter] = useState("");
   const [sizeFilter, setSizeFilter] = useState("");
@@ -314,7 +326,13 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     setInsertion(0);
   };
 
+  const clampIndex = (v: number, hi: number) => Math.min(Math.max(v, 0), hi);
+
   const handleBeadClick = (index: number, shiftKey: boolean) => {
+    if (didDragRef.current) {
+      didDragRef.current = false;
+      return;
+    }
     if (shiftKey && selection) {
       setSelection({ anchor: selection.anchor, focus: index });
     } else {
@@ -323,9 +341,65 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     setInsertion(index + 1);
   };
 
-  const handleBoardClick = () => {
+  const handleBoardClick = (e: React.MouseEvent) => {
+    if (didDragRef.current) {
+      didDragRef.current = false;
+      return;
+    }
     setSelection(null);
-    setInsertion(beads.length);
+    setInsertion(gapIndexFromClientX(e.clientX));
+  };
+
+  // --- drag to rearrange ---
+  const handleBeadPointerDown = (index: number, clientX: number) => {
+    // Dragging a bead inside the current selection moves the whole run.
+    const inSelection = range && index >= range.start && index <= range.end;
+    dragRef.current = inSelection
+      ? { start: range.start, end: range.end, startX: clientX, moved: false }
+      : { start: index, end: index, startX: clientX, moved: false };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d || e.buttons === 0) return;
+    // A few px of slop so ordinary clicks don't register as drags.
+    if (!d.moved && Math.abs(e.clientX - d.startX) < 5) return;
+    d.moved = true;
+    setDropIndex(gapIndexFromClientX(e.clientX));
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (d?.moved) {
+      didDragRef.current = true;
+      // The gesture's own click fires synchronously after pointerup; clear
+      // the flag afterwards so it can't swallow an unrelated later click.
+      setTimeout(() => {
+        didDragRef.current = false;
+      }, 0);
+      moveDraggedTo(gapIndexFromClientX(e.clientX));
+    }
+    dragRef.current = null;
+    setDropIndex(null);
+  };
+
+  const cancelDrag = () => {
+    dragRef.current = null;
+    setDropIndex(null);
+  };
+
+  const moveDraggedTo = (gap: number) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const block = beads.slice(d.start, d.end + 1);
+    // Gaps inside or immediately after the block mean "didn't move".
+    const at = gap <= d.start ? gap : gap > d.end + 1 ? gap - block.length : d.start;
+    if (at === d.start) return;
+    const rest = [...beads.slice(0, d.start), ...beads.slice(d.end + 1)];
+    rest.splice(at, 0, ...block);
+    mutateBeads(rest);
+    setSelection({ anchor: at, focus: at + block.length - 1 });
+    setInsertion(at + block.length);
   };
 
   // --- design persistence ---
@@ -435,13 +509,61 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       : strand.placed[insertion]?.xMm ?? 0) *
       pxPerMm;
 
+  // Nearest gap between beads for a pointer position (used by strand clicks
+  // and drag-drop). Declared here because it needs pxPerMm from above.
+  const gapIndexFromClientX = (clientX: number) => {
+    const svg = svgRef.current;
+    if (!svg) return beads.length;
+    const xMm = (clientX - svg.getBoundingClientRect().left - marginLeft) / pxPerMm;
+    let gap = 0;
+    for (const p of strand.placed) {
+      if (xMm > p.xMm + p.lengthMm / 2) gap = p.index + 1;
+    }
+    return gap;
+  };
+
+  const dropX =
+    dropIndex === null
+      ? null
+      : marginLeft +
+        (dropIndex >= strand.placed.length
+          ? strand.totalMm
+          : strand.placed[dropIndex]?.xMm ?? 0) *
+          pxPerMm;
+
   return (
     <div
       className="space-y-4"
       onKeyDown={(e) => {
-        if (e.key !== "Delete" && e.key !== "Backspace") return;
         const tag = (e.target as HTMLElement).tagName;
         if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+        if (e.key === "Escape") {
+          setSelection(null);
+          return;
+        }
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault();
+          const delta = e.key === "ArrowRight" ? 1 : -1;
+          if (e.shiftKey) {
+            if (beads.length === 0) return;
+            const hi = beads.length - 1;
+            if (selection) {
+              const focus = clampIndex(selection.focus + delta, hi);
+              setSelection({ anchor: selection.anchor, focus });
+              setInsertion(Math.max(selection.anchor, focus) + 1);
+            } else {
+              // Start selecting from the bead beside the caret.
+              const idx = clampIndex(delta === 1 ? insertion : insertion - 1, hi);
+              setSelection({ anchor: idx, focus: idx });
+              setInsertion(idx + 1);
+            }
+          } else {
+            setSelection(null);
+            setInsertion(clampIndex(insertion + delta, beads.length));
+          }
+          return;
+        }
+        if (e.key !== "Delete" && e.key !== "Backspace") return;
         e.preventDefault();
         if (range) {
           deleteSelection();
@@ -572,9 +694,13 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
         <div className="overflow-x-auto" tabIndex={0} ref={boardRef}>
           <svg
+            ref={svgRef}
             width={boardWidth}
             height={strandHeight + rulerHeight}
             onClick={handleBoardClick}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={cancelDrag}
             className="block cursor-default"
           >
             {/* string */}
@@ -600,7 +726,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                     e.stopPropagation();
                     handleBeadClick(p.index, e.shiftKey);
                   }}
-                  className="cursor-pointer"
+                  onPointerDown={(e) => handleBeadPointerDown(p.index, e.clientX)}
+                  className="cursor-grab active:cursor-grabbing"
                 >
                   {selected && (
                     <rect
@@ -645,6 +772,18 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               stroke="#a855f7"
               strokeWidth={2}
             />
+
+            {/* drop indicator while dragging */}
+            {dropX !== null && (
+              <line
+                x1={dropX}
+                y1={centerY - (maxWidthMm * pxPerMm) / 2 - 6}
+                x2={dropX}
+                y2={centerY + (maxWidthMm * pxPerMm) / 2 + 6}
+                stroke="#16a34a"
+                strokeWidth={2.5}
+              />
+            )}
 
             {/* ruler */}
             <g transform={`translate(0, ${strandHeight})`}>
@@ -787,7 +926,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           <p className="mt-2 text-sm text-gray-500">
             Click a bead in the palette to start the strand. Click a placed bead to
             select it (shift-click for a range), then Repeat or Fill to build a
-            pattern. Backspace removes the last-placed bead.
+            pattern. Drag beads to rearrange; click between beads to move the
+            insertion point. Arrow keys move it too (Shift+arrows select);
+            Backspace removes the last-placed bead, Esc clears the selection.
           </p>
         )}
       </div>
