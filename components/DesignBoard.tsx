@@ -600,8 +600,14 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     };
   };
 
-  /** Caret/drop tick drawn perpendicular to the worn curve. */
-  const curveTick = (sMm: number, stroke: string, strokeWidth: number, extraPx: number) => {
+  /** Caret/drop/target tick drawn perpendicular to the worn curve. */
+  const curveTick = (
+    sMm: number,
+    stroke: string,
+    strokeWidth: number,
+    extraPx: number,
+    dash?: string
+  ) => {
     const pt = curvePointPx(sMm);
     const rad = ((pt.tangentDeg + 90) * Math.PI) / 180;
     const r = (maxWidthMm / 2) * pxPerMm + extraPx;
@@ -613,8 +619,20 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         y2={pt.y + Math.sin(rad) * r}
         stroke={stroke}
         strokeWidth={strokeWidth}
+        strokeDasharray={dash}
       />
     );
+  };
+
+  /** Transform putting an element's local frame at its spot on the strand:
+   * origin at the element center, x along the given direction. */
+  const frameAt = (centerS: number, rotation: "tangent" | "hang") => {
+    if (layout === "curve") {
+      const pt = curvePointPx(centerS);
+      const deg = rotation === "tangent" ? pt.tangentDeg : pt.hangDeg - 90;
+      return `translate(${pt.x}, ${pt.y}) rotate(${deg})`;
+    }
+    return `translate(${marginLeft + centerS * pxPerMm}, ${centerY})`;
   };
 
   const zoomBy = (factor: number) => {
@@ -809,7 +827,18 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
 
       {/* Strand board */}
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-        <div className="overflow-x-auto" tabIndex={0} ref={boardRef}>
+        {layout === "curve" && (
+          <p className="mb-2 text-xs text-gray-500">
+            {curve.kind === "circle"
+              ? "Bracelet (as worn) — closes into a circle; targets of 12″ and up hang as a necklace"
+              : "Necklace (as worn) — hangs as it would when worn"}
+          </p>
+        )}
+        <div
+          className={layout === "curve" ? "overflow-auto max-h-[75vh]" : "overflow-x-auto"}
+          tabIndex={0}
+          ref={boardRef}
+        >
           <svg
             ref={svgRef}
             width={layout === "curve" ? curveWidthPx : boardWidth}
@@ -858,17 +887,10 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 const stoneW = visual.width_mm * pxPerMm;
                 const stoneL = visual.length_mm * pxPerMm;
                 const bailR = (CABOCHON_BAIL_MM / 2) * pxPerMm;
-                const frame =
-                  layout === "curve"
-                    ? (() => {
-                        const pt = curvePointPx(centerS);
-                        return `translate(${pt.x}, ${pt.y}) rotate(${pt.hangDeg - 90})`;
-                      })()
-                    : `translate(${marginLeft + centerS * pxPerMm}, ${centerY})`;
                 return (
                   <g
                     key={p.index}
-                    transform={frame}
+                    transform={frameAt(centerS, "hang")}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleBeadClick(p.index, e.shiftKey);
@@ -905,17 +927,10 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                   </g>
                 );
               }
-              const frame =
-                layout === "curve"
-                  ? (() => {
-                      const pt = curvePointPx(centerS);
-                      return `translate(${pt.x}, ${pt.y}) rotate(${pt.tangentDeg})`;
-                    })()
-                  : `translate(${marginLeft + centerS * pxPerMm}, ${centerY})`;
               return (
                 <g
                   key={p.index}
-                  transform={frame}
+                  transform={frameAt(centerS, "tangent")}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleBeadClick(p.index, e.shiftKey);
@@ -958,6 +973,12 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 </g>
               );
             })}
+
+            {/* target marker when the strand overruns it (line mode has the
+                ruler's dashed marker instead) */}
+            {layout === "curve" &&
+              strand.totalMm > targetMm &&
+              curveTick(targetMm, "#dc2626", 1.5, 6, "4 3")}
 
             {/* insertion caret */}
             {layout === "curve" ? (

@@ -97,10 +97,12 @@ export function curveGeometry(curveMm: number): CurveGeometry {
   };
 }
 
-/** SVG path for the full curve (the "string"), sampled finely enough to
- * look smooth at any zoom. */
+// Enough samples that the string looks smooth at any zoom.
+const CURVE_SAMPLE_STEPS = 96;
+
+/** SVG path for the full curve (the "string"). */
 export function curvePath(curve: CurveGeometry): string {
-  const steps = 96;
+  const steps = CURVE_SAMPLE_STEPS;
   const pts: string[] = [];
   for (let i = 0; i <= steps; i++) {
     const p = curve.pointAt((i / steps) * curve.curveMm);

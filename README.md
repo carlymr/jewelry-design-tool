@@ -105,6 +105,7 @@ components/
   PricingStudio.tsx            # design costs, extras, labor/markup, listing
 lib/
   bead-visual.ts               # visual spec schema + color/size helpers
+  strand-layout.ts             # as-worn geometry (bracelet circle / necklace drape)
   photo-upload.ts              # shared downscale + transient-upload helpers
   designs.ts / materials.ts    # Supabase CRUD
 supabase/migrations/           # schema (materials, receipts bucket, designs)
