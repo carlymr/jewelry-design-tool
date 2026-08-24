@@ -258,14 +258,17 @@ function componentElement(
       );
     }
     case "figure-eight": {
-      // Two tangent ring outlines (infinity links, double-ring connectors).
+      // Two elliptical lobes that overlap at the center (infinity links,
+      // double-ring connectors). Each lobe spans half the length so their
+      // strokes cross at L/2 instead of leaving a gap.
       const sw = Math.max(0.8, Math.min(L, W) * 0.14);
-      const r = Math.min(L / 4, W / 2) - sw / 2;
-      if (r <= 0) return null;
+      const rx = L / 4 - sw / 4;
+      const ry = W / 2 - sw / 2;
+      if (rx <= 0 || ry <= 0) return null;
       return (
         <g fill="none" stroke={paint} strokeWidth={sw}>
-          <circle cx={L * 0.27} cy={W / 2} r={r} />
-          <circle cx={L * 0.73} cy={W / 2} r={r} />
+          <ellipse cx={L * 0.25} cy={W / 2} rx={rx} ry={ry} />
+          <ellipse cx={L * 0.75} cy={W / 2} rx={rx} ry={ry} />
         </g>
       );
     }
