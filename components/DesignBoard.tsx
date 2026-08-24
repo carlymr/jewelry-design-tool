@@ -39,7 +39,24 @@ const ACTUAL_PX_PER_MM = 96 / MM_PER_INCH;
 // Beads without a generated visual still need to advance the strand somehow.
 const FALLBACK_BEAD_MM = 6;
 const MAX_BEADS = 500;
-const LENGTH_PRESETS_IN = [6, 6.5, 7, 7.5, 8, 9, 16, 18, 20];
+// Standard jewelry lengths; anything else via the Custom… option.
+const LENGTH_PRESETS: { in: number; label?: string }[] = [
+  { in: 6 },
+  { in: 6.5 },
+  { in: 7, label: "bracelet" },
+  { in: 7.5 },
+  { in: 8 },
+  { in: 9 },
+  { in: 10, label: "anklet" },
+  { in: 12, label: "collar" },
+  { in: 14, label: "collar" },
+  { in: 16, label: "choker" },
+  { in: 18, label: "princess" },
+  { in: 20, label: "matinee" },
+  { in: 24, label: "matinee" },
+  { in: 30, label: "opera" },
+  { in: 36, label: "rope" },
+];
 const VISUALS_BATCH = 60;
 // Categories whose items can sit on a strand and belong in the palette.
 // Wire/cord/tools stay inventory-only. Anything else with a generated visual
@@ -92,6 +109,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // "line" is the straight editing strand; "curve" shows the piece as worn
   // (circle for bracelet lengths, hanging drape for necklaces).
   const [layout, setLayout] = useState<"line" | "curve">("line");
+  // Non-null while the free-form target-length input is open (raw text so
+  // the field can be cleared mid-typing).
+  const [customTarget, setCustomTarget] = useState<string | null>(null);
   const [customPx, setCustomPx] = useState(6);
   const [containerW, setContainerW] = useState(1100);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -132,6 +152,16 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     observer.observe(el);
     setContainerW(el.clientWidth);
     return () => observer.disconnect();
+  }, []);
+
+  // The worn view fits vertically too, budgeted against the viewport (the
+  // container's own height follows its content, so it can't be the budget).
+  const [viewportH, setViewportH] = useState(800);
+  useEffect(() => {
+    const update = () => setViewportH(window.innerHeight);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
   }, []);
 
   // --- restore any unsaved draft (must be declared before the persist
@@ -497,6 +527,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     setCurrentId(design.id);
     setName(design.name);
     setTargetMm(Number(design.target_length_mm));
+    setCustomTarget(null);
     setBeads(design.beads ?? []);
     setDirty(false);
     setSelection(null);
@@ -518,6 +549,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       return;
     setCurrentId(null);
     setName("Untitled design");
+    setCustomTarget(null);
     setBeads([]);
     setDirty(false);
     setSelection(null);
@@ -579,7 +611,17 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const curvePadMm = maxWidthMm / 2 + pendantDropMm + 4;
   const fitPx =
     layout === "curve"
-      ? Math.min(12, Math.max(0.8, (containerW - 16) / (curve.widthMm + curvePadMm * 2)))
+      ? Math.min(
+          12,
+          Math.max(
+            0.8,
+            Math.min(
+              (containerW - 16) / (curve.widthMm + curvePadMm * 2),
+              // Height budget matches the container's max-h-[75vh].
+              (viewportH * 0.75 - 16) / (curve.heightMm + curvePadMm * 2)
+            )
+          )
+        )
       : Math.min(12, Math.max(0.8, (containerW - marginLeft - 24) / boardMm));
   const pxPerMm = zoomMode === "fit" ? fitPx : customPx;
   const strandHeight = (maxWidthMm + pendantDropMm) * pxPerMm + 16;
@@ -724,22 +766,49 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         <label className="text-sm text-gray-600 flex items-center gap-2">
           Target
           <select
-            value={targetIn}
+            value={customTarget !== null ? "custom" : targetIn}
             onChange={(e) => {
+              if (e.target.value === "custom") {
+                setCustomTarget(String(targetIn));
+                return;
+              }
+              setCustomTarget(null);
               setTargetMm(parseFloat(e.target.value) * MM_PER_INCH);
               setDirty(true);
             }}
             className="px-2 py-2 border border-gray-300 rounded-md text-sm bg-white"
           >
-            {LENGTH_PRESETS_IN.map((len) => (
-              <option key={len} value={len}>
-                {len}&quot;
+            {LENGTH_PRESETS.map((p) => (
+              <option key={p.in} value={p.in}>
+                {p.in}&quot;{p.label ? ` · ${p.label}` : ""}
               </option>
             ))}
-            {!LENGTH_PRESETS_IN.includes(targetIn) && (
-              <option value={targetIn}>{targetIn.toFixed(2)}&quot;</option>
-            )}
+            {customTarget === null &&
+              !LENGTH_PRESETS.some((p) => p.in === targetIn) && (
+                <option value={targetIn}>{targetIn.toFixed(2)}&quot;</option>
+              )}
+            <option value="custom">Custom…</option>
           </select>
+          {customTarget !== null && (
+            <input
+              type="number"
+              min={1}
+              max={100}
+              step={0.5}
+              value={customTarget}
+              onChange={(e) => {
+                setCustomTarget(e.target.value);
+                const v = parseFloat(e.target.value);
+                if (v > 0 && v <= 100) {
+                  setTargetMm(v * MM_PER_INCH);
+                  setDirty(true);
+                }
+              }}
+              className="w-20 px-2 py-2 border border-gray-300 rounded-md text-sm"
+              aria-label="Custom target length in inches"
+              autoFocus
+            />
+          )}
         </label>
         <div className="flex items-center gap-1 bg-white border border-gray-300 rounded-md p-0.5">
           <button
