@@ -31,11 +31,12 @@ const ResponseSchema = z.object({
   ),
 });
 
-const PROMPT = `For each jewelry material below, produce a visual spec describing how to draw one bead of it on a virtual beading board.
+const PROMPT = `For each jewelry material below, produce a visual spec describing how to draw one element of it on a virtual beading board.
 
 - Infer color, finish, and pattern from the material name (e.g. ocean jasper is typically mottled sea-green and glossy; hematite is dark metallic gray).
-- length_mm is the dimension along the stringing hole — how far one bead advances a strand. For an "8x4mm rondelle" that is 4; for an "8mm round" it is 8. If no size is given, use a sensible default for the item type.
+- length_mm is the dimension along the stringing hole — how far one element advances a strand. For an "8x4mm rondelle" that is 4; for an "8mm round" it is 8. If no size is given, use a sensible default for the item type.
 - width_mm is the visible diameter perpendicular to the hole.
+- Non-bead components get component shapes: 'chain' for link chain (length_mm always 25.4 — one placed element is a 1-inch segment; width_mm is the link width), 'jump-ring', 'lobster-clasp' (typical 12x6mm), 'toggle-clasp', 'connector' for multi-loop bars and links, 'cabochon' for flat-backed focal stones (use the stone's real dimensions — cabochons are large, e.g. 25x18mm). Metal components are almost always metallic finish in gold or silver tones.
 - Copy each material's id exactly and return one visual per material.
 
 Materials:

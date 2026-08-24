@@ -148,6 +148,153 @@ function shapeElement(visual: BeadVisual, L: number, W: number, rand: () => numb
   }
 }
 
+/** Non-bead components (chain, clasps, rings, connectors) are mostly open
+ * metal shapes — strokes and bars, not filled silhouettes — so they bypass
+ * the gradient/pattern/facet pipeline and draw themselves directly. Returns
+ * null for bead shapes. Cabochons deliberately fall through to the bead
+ * pipeline: a flat-backed stone reads exactly like a large domed oval. */
+function componentElement(
+  visual: BeadVisual,
+  L: number,
+  W: number,
+  paint: string
+): React.ReactNode | null {
+  switch (visual.shape) {
+    case "chain": {
+      // Alternating wide/narrow oval links to suggest interlocking.
+      const linkL = Math.min(W * 1.5, Math.max(4, L / 4));
+      const n = Math.max(2, Math.round(L / (linkL * 0.72)));
+      const stride = n > 1 ? (L - linkL) / (n - 1) : 0;
+      const sw = Math.max(0.8, W * 0.14);
+      return (
+        <g>
+          {Array.from({ length: n }, (_, i) => (
+            <ellipse
+              key={i}
+              cx={linkL / 2 + i * stride}
+              cy={W / 2}
+              rx={i % 2 === 0 ? linkL / 2 - sw / 2 : linkL * 0.3}
+              ry={i % 2 === 0 ? W / 2 - sw / 2 : W * 0.3}
+              fill="none"
+              stroke={paint}
+              strokeWidth={sw}
+            />
+          ))}
+        </g>
+      );
+    }
+    case "jump-ring": {
+      const sw = Math.max(0.8, Math.min(L, W) * 0.16);
+      return (
+        <ellipse
+          cx={L / 2}
+          cy={W / 2}
+          rx={L / 2 - sw / 2}
+          ry={W / 2 - sw / 2}
+          fill="none"
+          stroke={paint}
+          strokeWidth={sw}
+        />
+      );
+    }
+    case "toggle-clasp": {
+      // Ring on the left, T-bar on the right.
+      const ringR = Math.min(L * 0.3, W / 2);
+      const barH = Math.max(1.5, W * 0.18);
+      return (
+        <g>
+          <circle
+            cx={ringR}
+            cy={W / 2}
+            r={ringR - Math.max(0.8, ringR * 0.18) / 2}
+            fill="none"
+            stroke={paint}
+            strokeWidth={Math.max(0.8, ringR * 0.3)}
+          />
+          <rect
+            x={L * 0.55}
+            y={W / 2 - barH / 2}
+            width={L * 0.45}
+            height={barH}
+            rx={barH / 2}
+            fill={paint}
+          />
+          <line
+            x1={ringR * 2}
+            y1={W / 2}
+            x2={L * 0.62}
+            y2={W / 2}
+            stroke={paint}
+            strokeWidth={Math.max(0.8, barH * 0.4)}
+          />
+        </g>
+      );
+    }
+    case "lobster-clasp": {
+      // Small ring, then the claw body with its characteristic hook notch.
+      const ringR = Math.min(L * 0.12, W * 0.26);
+      const x0 = ringR * 2;
+      return (
+        <g>
+          <circle
+            cx={ringR}
+            cy={W / 2}
+            r={Math.max(1, ringR - 0.5)}
+            fill="none"
+            stroke={paint}
+            strokeWidth={Math.max(0.8, ringR * 0.5)}
+          />
+          <path
+            d={`M ${x0} ${W * 0.5}
+                C ${x0} ${W * 0.18} ${L * 0.55} ${W * 0.02} ${L * 0.78} ${W * 0.16}
+                C ${L * 0.98} ${W * 0.3} ${L * 0.98} ${W * 0.52} ${L * 0.8} ${W * 0.55}
+                L ${L * 0.72} ${W * 0.42}
+                L ${L * 0.68} ${W * 0.58}
+                C ${L * 0.72} ${W * 0.88} ${L * 0.45} ${W * 1.0} ${L * 0.3} ${W * 0.88}
+                C ${x0} ${W * 0.78} ${x0} ${W * 0.62} ${x0} ${W * 0.5} Z`}
+            fill={paint}
+          />
+        </g>
+      );
+    }
+    case "connector": {
+      // A bar with a loop at each end (spacer bars, chandelier links).
+      const r = Math.max(1.5, Math.min(L * 0.12, W * 0.4));
+      const barH = Math.max(1.5, W * 0.2);
+      return (
+        <g>
+          <circle
+            cx={r}
+            cy={W / 2}
+            r={r - Math.max(0.6, r * 0.25) / 2}
+            fill="none"
+            stroke={paint}
+            strokeWidth={Math.max(0.6, r * 0.5)}
+          />
+          <circle
+            cx={L - r}
+            cy={W / 2}
+            r={r - Math.max(0.6, r * 0.25) / 2}
+            fill="none"
+            stroke={paint}
+            strokeWidth={Math.max(0.6, r * 0.5)}
+          />
+          <rect
+            x={r * 2}
+            y={W / 2 - barH / 2}
+            width={Math.max(1, L - r * 4)}
+            height={barH}
+            rx={barH / 2}
+            fill={paint}
+          />
+        </g>
+      );
+    }
+    default:
+      return null;
+  }
+}
+
 interface BeadProps {
   visual: BeadVisual;
   pxPerMm: number;
@@ -167,6 +314,7 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead" }: BeadP
   const c = visual.color;
   const gradId = `bg-${uid}`;
   const clipId = `bc-${uid}`;
+  const component = componentElement(visual, L, W, `url(#${gradId})`);
 
   const gradient =
     visual.finish === "metallic" ? (
@@ -279,6 +427,15 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead" }: BeadP
       ))}
     </g>
   );
+
+  if (component) {
+    return (
+      <g>
+        <defs>{gradient}</defs>
+        {component}
+      </g>
+    );
+  }
 
   return (
     <g>
