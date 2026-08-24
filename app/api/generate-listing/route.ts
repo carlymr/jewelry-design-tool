@@ -43,7 +43,7 @@ const DEFAULT_STYLE =
   "Use warm, artisanal language that highlights handcrafted quality and uniqueness. Focus on the beauty and energy of natural stones.";
 
 export async function POST(request: NextRequest) {
-  if (!isAuthorized(request)) {
+  if (!(await isAuthorized(request))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   if (!process.env.ANTHROPIC_API_KEY) {

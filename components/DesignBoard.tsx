@@ -15,7 +15,8 @@ import {
 } from "lucide-react";
 import BeadSwatch, { Bead } from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
-import { apiHeaders } from "@/lib/api-token";
+import { useSession } from "@/components/AuthGate";
+import { apiHeaders } from "@/lib/auth";
 import { updateMaterial } from "@/lib/materials";
 import {
   createDesign,
@@ -66,6 +67,11 @@ const beadWidthMm = (m: Material | undefined) =>
     : m?.visual?.width_mm ?? FALLBACK_BEAD_MM;
 
 export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
+  // Drafts are namespaced per account so nothing leaks between sign-ins on
+  // a shared browser.
+  const session = useSession();
+  const draftKey = `${DRAFT_KEY}:${session?.user.id ?? "local"}`;
+
   // --- design state (working copy) ---
   const [designs, setDesigns] = useState<Design[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
@@ -131,7 +137,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     if (draftRestored.current) return;
     draftRestored.current = true;
     try {
-      const raw = localStorage.getItem(DRAFT_KEY);
+      const raw = localStorage.getItem(draftKey);
       if (!raw) return;
       const draft = JSON.parse(raw);
       if (!Array.isArray(draft.beads)) return;
@@ -150,17 +156,17 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   useEffect(() => {
     try {
       if (!dirty) {
-        localStorage.removeItem(DRAFT_KEY);
+        localStorage.removeItem(draftKey);
       } else {
         localStorage.setItem(
-          DRAFT_KEY,
+          draftKey,
           JSON.stringify({ currentId, name, targetMm, beads })
         );
       }
     } catch {
       // Quota/private-mode failures just lose the safety net, nothing else.
     }
-  }, [dirty, currentId, name, targetMm, beads]);
+  }, [dirty, currentId, name, targetMm, beads, draftKey]);
 
   // --- load designs ---
   useEffect(() => {
@@ -188,7 +194,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           const batch = missing.slice(i, i + VISUALS_BATCH);
           const res = await fetch("/api/generate-visuals", {
             method: "POST",
-            headers: apiHeaders(),
+            headers: await apiHeaders(),
             body: JSON.stringify({
               materials: batch.map((m) => ({ id: m.id, name: m.name })),
             }),
@@ -213,7 +219,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     try {
       const res = await fetch("/api/generate-visuals", {
         method: "POST",
-        headers: apiHeaders(),
+        headers: await apiHeaders(),
         body: JSON.stringify({
           materials: [{ id: material.id, name: material.name }],
         }),

@@ -41,10 +41,18 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 ### 1. Supabase
 
 1. Create a project at [supabase.com](https://supabase.com/dashboard).
-2. In the SQL Editor, run each file in `supabase/migrations/` in order.
+2. In the SQL Editor, run migrations `0001` through `0005` in order — **do not run `0006` yet** (see below).
 3. From **Project Settings → API**, copy the project URL and publishable key.
 
-> The migrations enable RLS with permissive policies — fine for a single-user tool. Tighten them when auth is added.
+> **`0006_user_scoping_lockdown.sql` comes last, after everything else works**: sign in once, backfill any legacy rows to your user id (instructions in the file), then run it — it removes anonymous access. Its `SET NOT NULL` fails loudly if legacy rows were missed, so running it early errors rather than stranding data.
+>
+> Full first-time order: migrations `0001`–`0005` → env vars → Google sign-in config → run the app and sign in → backfill → `0006`.
+
+### Google sign-in
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create an **OAuth client ID** (type: Web application) with the authorized redirect URI `https://<your-project-ref>.supabase.co/auth/v1/callback`.
+2. In Supabase → **Authentication → Providers → Google**, enable the provider and paste the client ID and secret.
+3. In Supabase → **Authentication → URL Configuration**, set the Site URL to your production URL and add `http://localhost:3000` to the additional redirect URLs for local dev.
 
 ### 2. Environment variables
 
@@ -70,6 +78,8 @@ Open http://localhost:3000. Requires Node 24 (`.nvmrc`).
 ## Deploy to Vercel
 
 Import the repo at [vercel.com/new](https://vercel.com/new) (or `vercel` from the CLI), add the three environment variables, and deploy — Next.js is auto-detected.
+
+After the first deploy, set the **Site URL** (and redirect URL) in Supabase → **Authentication → URL Configuration** to the assigned Vercel URL — Google sign-in silently fails in production until this matches.
 
 **Note:** receipt files are uploaded directly to a private Supabase Storage bucket (`receipts`) rather than through the API route, sidestepping Vercel's ~4.5MB request-body cap. The route downloads the file server-side, processes it, and deletes it. Files up to 20MB are supported; large photos are downscaled client-side.
 

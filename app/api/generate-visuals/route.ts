@@ -43,7 +43,7 @@ Materials:
 `;
 
 export async function POST(request: NextRequest) {
-  if (!isAuthorized(request)) {
+  if (!(await isAuthorized(request))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   if (!process.env.ANTHROPIC_API_KEY) {

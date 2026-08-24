@@ -15,7 +15,9 @@ There is no test suite or lint config yet. Node 24 is required (`.nvmrc`); supab
 
 ## What this is
 
-Virtual beading board + materials inventory + AI receipt processing for a strung-jewelry business. Single-user tool (no auth yet). Extracted from an earlier Claude-artifact prototype.
+Virtual beading board + materials inventory + AI receipt processing for a strung-jewelry business. Extracted from an earlier Claude-artifact prototype.
+
+Auth is Supabase Google OAuth: `components/AuthGate.tsx` gates the whole app and provides the session via context; `lib/auth.ts` wraps supabase-js auth and builds API-route headers. Materials and designs are scoped per-user (`user_id`). Migration `0005` is the zero-downtime transition (legacy null-owner rows stay visible; a trigger freezes `user_id` so nobody can claim or release rows); `0006` is the lockdown — apply it only after backfilling legacy rows to their owner, per the comments in the file. 0006 also restricts the `receipts` Storage bucket to authenticated users. API routes verify the Supabase JWT via a GoTrue `fetch` (no supabase-js server-side); the legacy `x-app-token` fallback in `lib/api-token.ts` comes out once 0006 ships.
 
 The pricing calculator and Etsy listing generator were rebuilt from that artifact as `/pricing` (`components/PricingStudio.tsx`): materials cost derives from a saved design's actual beads (plus manually added "extras" like clasps), and `app/api/generate-listing/route.ts` drafts the listing. Per-design inputs and the listing persist on `designs.pricing`/`designs.listing` (jsonb); business-wide rates and style guidelines live in localStorage (`pricing-settings`).
 
@@ -29,7 +31,7 @@ Deployed on Vercel (project `jewelry-design-tool`, personal account) from pushes
 
 Two independent data paths:
 
-1. **Inventory + designs CRUD** — browser talks to Supabase directly via `supabase-js` (`lib/materials.ts`, `lib/designs.ts` → `lib/supabase.ts`). No API routes involved; even generated visuals are written by the client after the API route returns them. RLS is enabled but deliberately permissive (single-user); tighten policies when auth is added.
+1. **Inventory + designs CRUD** — browser talks to Supabase directly via `supabase-js` (`lib/materials.ts`, `lib/designs.ts` → `lib/supabase.ts`). No API routes involved; even generated visuals are written by the client after the API route returns them. RLS scopes rows to `auth.uid()`; inserts stamp `user_id` client-side until the 0006 lockdown adds a DB default.
 
 2. **Receipt processing** — three hops, shaped by two hard constraints:
    - Client uploads the file **directly to the private `receipts` Storage bucket** (`components/ReceiptImport.tsx`), because Vercel serverless functions cap request bodies at ~4.5MB. Never route file uploads through an API route.
