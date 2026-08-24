@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import BeadSwatch, { Bead } from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
+import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { updateMaterial } from "@/lib/materials";
@@ -1113,6 +1114,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                   </span>
                   <Plus className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
                 </button>
+                <PhotoVisualButton
+                  material={m}
+                  onUpdated={onMaterialsChanged}
+                  onError={setError}
+                />
                 <button
                   onClick={() => regenerateVisual(m)}
                   disabled={regeneratingId === m.id}

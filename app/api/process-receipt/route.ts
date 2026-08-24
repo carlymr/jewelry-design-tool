@@ -18,12 +18,15 @@ const STORAGE_PATH_RE = /^[0-9a-f-]{36}\.(pdf|jpe?g|png|gif|webp)$/i;
 // WebSocket at construction time, which breaks server-side on Node < 22
 // (this project targets Node 24 — see .nvmrc — but keep the route free of
 // supabase-js anyway).
-function storageConfig() {
+// Storage calls run with the caller's session token: the receipts bucket is
+// authenticated-only since the 0006 lockdown, and the route holds no service
+// key. isAuthorized() has already validated the header by the time this runs.
+function storageConfig(authHeader: string | null) {
   const config = getSupabaseConfig();
-  if (!config) return null;
+  if (!config || !authHeader) return null;
   return {
     objectUrl: `${config.url}/storage/v1/object/${RECEIPTS_BUCKET}`,
-    headers: { Authorization: `Bearer ${config.key}`, apikey: config.key },
+    headers: { Authorization: authHeader, apikey: config.key },
   };
 }
 
@@ -133,7 +136,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const storage = storageConfig();
+  const storage = storageConfig(request.headers.get("authorization"));
   if (!storage) {
     return NextResponse.json(
       { error: "Supabase is not configured on the server." },

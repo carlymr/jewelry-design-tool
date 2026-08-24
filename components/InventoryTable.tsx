@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
+import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
 import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
 import { CATEGORIES, type Material, type NewMaterial } from "@/lib/types";
@@ -386,7 +387,14 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500"
               />
             </div>
-            <div className="col-span-1 flex justify-center">
+            <div className="col-span-1 flex justify-center items-center gap-1">
+              <PhotoVisualButton
+                material={material}
+                onUpdated={onChanged}
+                onError={setError}
+                className="text-gray-300 hover:text-purple-600 p-1 rounded"
+              />
+              <span aria-hidden className="w-px h-4 bg-gray-200" />
               <button
                 onClick={() => handleDelete(material)}
                 disabled={busy}

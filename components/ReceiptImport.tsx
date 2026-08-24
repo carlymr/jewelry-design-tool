@@ -5,38 +5,11 @@ import { Upload, Eye, Trash2 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import { apiHeaders } from "@/lib/auth";
 import { addMaterials } from "@/lib/materials";
-import { getSupabase } from "@/lib/supabase";
+import { uploadForProcessing } from "@/lib/photo-upload";
 import type { ExtractedItem } from "@/lib/types";
-
-// Files go straight to Supabase Storage (bypassing Vercel's ~4.5MB request
-// body cap); the API route receives only the storage path. The bucket caps
-// files at 20MB, which also keeps the Anthropic request under its 32MB limit.
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
-// Images larger than this get downscaled client-side anyway — receipts don't
-// need more resolution, and it saves tokens.
-const IMAGE_DOWNSCALE_THRESHOLD = 3 * 1024 * 1024;
 
 interface Props {
   onImported: () => Promise<void>;
-}
-
-async function downscaleImage(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file);
-  const maxDim = 2000;
-  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Could not create canvas context");
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("Image compression failed"))),
-      "image/jpeg",
-      0.85
-    );
-  });
 }
 
 export default function ReceiptImport({ onImported }: Props) {
@@ -54,32 +27,9 @@ export default function ReceiptImport({ onImported }: Props) {
     setNotes(null);
 
     try {
-      let blob: Blob = file;
-      let mediaType = file.type;
-
-      if (file.size > MAX_UPLOAD_BYTES) {
-        throw new Error("File is too large (max 20MB).");
-      }
-      if (file.type === "application/pdf") {
-        // fine as-is
-      } else if (file.type.startsWith("image/")) {
-        if (file.size > IMAGE_DOWNSCALE_THRESHOLD) {
-          blob = await downscaleImage(file);
-          mediaType = "image/jpeg";
-        }
-      } else {
-        throw new Error("Upload an image (PNG, JPG, WebP) or PDF.");
-      }
-
-      // Upload directly to Supabase Storage, then hand the API route the path.
-      const ext = mediaType === "application/pdf" ? "pdf" : mediaType.split("/")[1];
-      const path = `${crypto.randomUUID()}.${ext}`;
-      const { error: uploadError } = await getSupabase()
-        .storage.from("receipts")
-        .upload(path, blob, { contentType: mediaType });
-      if (uploadError) {
-        throw new Error(`Upload failed: ${uploadError.message}`);
-      }
+      // Validate/downscale/upload directly to Supabase Storage, then hand
+      // the API route only the path.
+      const { path, mediaType } = await uploadForProcessing(file, { allowPdf: true });
 
       const response = await fetch("/api/process-receipt", {
         method: "POST",

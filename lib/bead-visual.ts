@@ -1,9 +1,10 @@
 import { z } from "zod";
 
 // Render-ready visual spec for a bead, generated once by Claude (from the
-// receipt's product photos when available, otherwise from the material name)
-// and stored in materials.visual. BeadSwatch renders it; the two API routes
-// share this schema so specs are identical regardless of provenance.
+// receipt's product photos, a user-uploaded close-up, or the material name)
+// and stored in materials.visual. BeadSwatch renders it; the three API
+// routes (process-receipt, generate-visuals, analyze-photo) share this
+// schema so specs are identical regardless of provenance.
 
 export const COLOR_FAMILIES = [
   "red",
