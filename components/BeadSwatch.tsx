@@ -257,6 +257,32 @@ function componentElement(
         </g>
       );
     }
+    case "figure-eight": {
+      // Two tangent ring outlines (infinity links, double-ring connectors).
+      const sw = Math.max(0.8, Math.min(L, W) * 0.14);
+      const r = Math.min(L / 4, W / 2) - sw / 2;
+      if (r <= 0) return null;
+      return (
+        <g fill="none" stroke={paint} strokeWidth={sw}>
+          <circle cx={L * 0.27} cy={W / 2} r={r} />
+          <circle cx={L * 0.73} cy={W / 2} r={r} />
+        </g>
+      );
+    }
+    case "triangle": {
+      // Open triangle outline (triangle charms, geometric connectors).
+      const sw = Math.max(0.8, Math.min(L, W) * 0.14);
+      const i = sw;
+      return (
+        <polygon
+          points={`${L / 2},${i} ${L - i},${W - i} ${i},${W - i}`}
+          fill="none"
+          stroke={paint}
+          strokeWidth={sw}
+          strokeLinejoin="round"
+        />
+      );
+    }
     case "connector": {
       // A bar with a loop at each end (spacer bars, chandelier links).
       // Capped at L/4 so the loops stay inside the element's footprint.

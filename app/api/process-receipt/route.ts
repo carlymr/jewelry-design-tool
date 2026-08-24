@@ -85,7 +85,7 @@ VISUALS:
 - For each item that can sit on a strand — beads, spacers, chains, clasps, jump rings, connectors, cabochons — fill in the visual spec. Product photos on the receipt are the best source for color, finish, and pattern — use them when present; otherwise infer from the material name (e.g. ocean jasper is typically mottled sea-green).
 - When splitting an assortment, give each variant its own visual (the "Silver" variants get silver coloring, the 4mm variants get 4mm dimensions, and so on).
 - length_mm is the dimension along the stringing hole (a 8x4mm rondelle advances the strand 4mm); width_mm is the visible diameter.
-- Non-bead components use the component shapes: 'chain' (length_mm always 25.4 — one element is a 1-inch segment), 'jump-ring', 'lobster-clasp', 'toggle-clasp', 'connector', 'cabochon'. Metal findings are almost always metallic finish.
+- Non-bead components use the component shapes: 'chain' (length_mm always 25.4 — one element is a 1-inch segment), 'jump-ring', 'lobster-clasp', 'toggle-clasp', 'connector' (bar with end loops), 'figure-eight' (infinity links), 'triangle' (triangle charms), 'cabochon'. Metal findings are almost always metallic finish.
 
 ESTIMATING UNITS:
 - For bead strands, estimate bead count from strand length and bead size (a 15" strand of 8mm beads is about 48 beads; a 16" strand of 6mm beads is about 67 beads).
