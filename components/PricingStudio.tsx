@@ -37,12 +37,15 @@ interface PricingDraft {
 }
 
 // Business-wide knobs, shared across designs (kept as strings so inputs can
-// be cleared while typing, like the original artifact tool).
+// be cleared while typing, like the original artifact tool). Templates keep
+// title/description format consistent across the whole store.
 interface Settings {
   hourly_rate: string;
   overhead_pct: string;
   markup_pct: string;
   style_guidelines: string;
+  title_template: string;
+  description_template: string;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -50,6 +53,8 @@ const DEFAULT_SETTINGS: Settings = {
   overhead_pct: "15",
   markup_pct: "200",
   style_guidelines: "",
+  title_template: "",
+  description_template: "",
 };
 
 function loadSettings(): Settings {
@@ -313,6 +318,8 @@ export default function PricingStudio({ materials }: Props) {
           labor_hours: parseFloat(laborHours) || undefined,
           length_in: strandIn > 0 ? strandIn : undefined,
           style_guidelines: settings.style_guidelines || undefined,
+          title_template: settings.title_template || undefined,
+          description_template: settings.description_template || undefined,
         }),
       });
       const result = await res.json();
@@ -661,6 +668,38 @@ export default function PricingStudio({ materials }: Props) {
       <div className="bg-gray-50 p-6 rounded-lg">
         <h2 className="text-xl font-semibold mb-4">Etsy Listing</h2>
         <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Title Template (Optional)
+            </label>
+            <input
+              type="text"
+              value={settings.title_template}
+              onChange={(e) => updateSettings({ title_template: e.target.value })}
+              placeholder='e.g., [Primary stone] [type of piece] - [length] - [color]'
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 font-mono text-sm"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Bracketed placeholders are filled in from the design; the rest is
+              kept verbatim, so every listing title has the same shape.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Description Template (Optional)
+            </label>
+            <textarea
+              value={settings.description_template}
+              onChange={(e) =>
+                updateSettings({ description_template: e.target.value })
+              }
+              rows={4}
+              placeholder={
+                "Outline every description follows, e.g.:\n[One-sentence hook]\n\nMaterials: [stones and metals]\nLength: [length]\n\n[Care instructions]"
+              }
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 font-mono text-sm"
+            />
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Style Guidelines (Optional)

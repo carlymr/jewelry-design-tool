@@ -20,6 +20,8 @@ const RequestSchema = z.object({
   labor_hours: z.number().nonnegative().optional(),
   length_in: z.number().positive().optional(),
   style_guidelines: z.string().max(2000).optional(),
+  title_template: z.string().max(300).optional(),
+  description_template: z.string().max(3000).optional(),
 });
 
 const ListingSchema = z.object({
@@ -75,8 +77,20 @@ ${body.length_in ? `FINISHED LENGTH: ${body.length_in.toFixed(1)} inches\n` : ""
   }PRICE: $${body.price.toFixed(2)}
 
 STYLE GUIDELINES: ${body.style_guidelines?.trim() || DEFAULT_STYLE}
-
-Write an SEO-optimized title, a detailed description (materials, dimensions, care instructions), and exactly 13 Etsy SEO tags. Mention only materials that are actually in the composition above.`;
+${
+  body.title_template?.trim()
+    ? `\nTITLE TEMPLATE — every listing in this store follows this exact format. Substitute the bracketed placeholders from the piece's actual details and keep all other text and punctuation verbatim:\n${body.title_template.trim()}\n`
+    : ""
+}${
+  body.description_template?.trim()
+    ? `\nDESCRIPTION TEMPLATE — structure the description to follow this outline exactly (substitute bracketed placeholders, keep the section order and any literal text):\n${body.description_template.trim()}\n`
+    : ""
+}
+Write an SEO-optimized title, a detailed description (materials, dimensions, care instructions), and exactly 13 Etsy SEO tags. Mention only materials that are actually in the composition above.${
+    body.title_template || body.description_template
+      ? " Consistency with the templates takes precedence over SEO flourishes."
+      : ""
+  }`;
 
   try {
     const client = new Anthropic();
