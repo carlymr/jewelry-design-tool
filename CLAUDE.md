@@ -15,7 +15,9 @@ There is no test suite or lint config yet. Node 24 is required (`.nvmrc`); supab
 
 ## What this is
 
-Virtual beading board + materials inventory + AI receipt processing for a strung-jewelry business. Single-user tool (no auth yet). Extracted from an earlier Claude-artifact prototype; the artifact's pricing calculator and Etsy listing generator were intentionally left behind and may be rebuilt later.
+Virtual beading board + materials inventory + AI receipt processing for a strung-jewelry business. Single-user tool (no auth yet). Extracted from an earlier Claude-artifact prototype.
+
+The pricing calculator and Etsy listing generator were rebuilt from that artifact as `/pricing` (`components/PricingStudio.tsx`): materials cost derives from a saved design's actual beads (plus manually added "extras" like clasps), and `app/api/generate-listing/route.ts` drafts the listing. Per-design inputs and the listing persist on `designs.pricing`/`designs.listing` (jsonb); business-wide rates and style guidelines live in localStorage (`pricing-settings`).
 
 The design board (`components/DesignBoard.tsx`, home page) lays out strands true to scale from stored per-bead visual specs (`lib/bead-visual.ts` schema, rendered by `components/BeadSwatch.tsx`). Visuals are generated once and stored in `materials.visual`: the receipt route emits them photo-informed during extraction; `app/api/generate-visuals/route.ts` backfills name-only for everything else (triggered lazily when the board loads). Both routes share the same Zod schema — keep them in sync through `lib/bead-visual.ts`.
 

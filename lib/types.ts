@@ -48,6 +48,8 @@ export interface Design {
   name: string;
   target_length_mm: number;
   beads: DesignBead[];
+  pricing: DesignPricing | null;
+  listing: DesignListing | null;
   created_at: string;
   updated_at: string;
 }
@@ -56,4 +58,30 @@ export interface DesignBead {
   material_id: string;
 }
 
-export type NewDesign = Omit<Design, "id" | "created_at" | "updated_at">;
+/** An off-board material used by a design (clasp, wire, etc.). */
+export interface DesignExtra {
+  material_id: string;
+  quantity: number;
+}
+
+/** Pricing inputs saved per design; business-wide rates live in localStorage. */
+export interface DesignPricing {
+  labor_hours: number;
+  extras: DesignExtra[];
+}
+
+/** A generated Etsy listing, editable and saved with its design. */
+export interface DesignListing {
+  title: string;
+  description: string;
+  tags: string[];
+  price: number;
+}
+
+export type NewDesign = Omit<
+  Design,
+  "id" | "created_at" | "updated_at" | "pricing" | "listing"
+> & {
+  pricing?: DesignPricing | null;
+  listing?: DesignListing | null;
+};
