@@ -43,14 +43,11 @@ export async function getAccessToken(): Promise<string | null> {
   return (await getSession())?.access_token ?? null;
 }
 
-/** Headers for the app's API routes: the session JWT, plus the legacy
- * shared token while it's still accepted server-side. */
+/** Headers for the app's API routes: the session JWT. */
 export async function apiHeaders(): Promise<Record<string, string>> {
   const token = await getAccessToken();
-  const legacy = process.env.NEXT_PUBLIC_API_TOKEN;
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(legacy ? { "x-app-token": legacy } : {}),
   };
 }
