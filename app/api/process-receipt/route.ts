@@ -53,7 +53,7 @@ const ExtractedItemSchema = z.object({
   unit_type: z.string().describe("Unit of measure: piece, inch, gram, etc."),
   unit_cost: z.number().describe("Price per unit: total_price / estimated_units"),
   visual: BeadVisualSchema.nullable().describe(
-    "Visual spec for beads, spacers, and other components that would be strung on a strand. Use the product photos on the receipt when present — especially for color and finish. Null for non-strand items (wire, cord, tools, most findings)."
+    "Visual spec for anything that can sit on a strand: beads, spacers, chains, clasps, jump rings, connectors, and cabochons. Use the product photos on the receipt when present — especially for color and finish. Null only for items that never appear on a strand (wire, cord, thread, tools)."
   ),
 });
 
@@ -82,9 +82,10 @@ PRICING:
 - Apply any shop discounts, sales, or percentage-off deals shown on the receipt. If an item shows $30.00 with a 70% shop discount, the price paid was $9.00.
 
 VISUALS:
-- For each bead/spacer/strand-component item, fill in the visual spec. Product photos on the receipt are the best source for color, finish, and pattern — use them when present; otherwise infer from the material name (e.g. ocean jasper is typically mottled sea-green).
+- For each item that can sit on a strand — beads, spacers, chains, clasps, jump rings, connectors, cabochons — fill in the visual spec. Product photos on the receipt are the best source for color, finish, and pattern — use them when present; otherwise infer from the material name (e.g. ocean jasper is typically mottled sea-green).
 - When splitting an assortment, give each variant its own visual (the "Silver" variants get silver coloring, the 4mm variants get 4mm dimensions, and so on).
 - length_mm is the dimension along the stringing hole (a 8x4mm rondelle advances the strand 4mm); width_mm is the visible diameter.
+- Non-bead components use the component shapes: 'chain' (length_mm always 25.4 — one element is a 1-inch segment), 'jump-ring', 'lobster-clasp', 'toggle-clasp', 'connector' (bar with end loops), 'figure-eight' (infinity links), 'triangle' (triangle charms), 'cabochon'. Metal findings are almost always metallic finish.
 
 ESTIMATING UNITS:
 - For bead strands, estimate bead count from strand length and bead size (a 15" strand of 8mm beads is about 48 beads; a 16" strand of 6mm beads is about 67 beads).

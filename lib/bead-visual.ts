@@ -41,16 +41,32 @@ export const BEAD_SHAPES = [
   "flower",
 ] as const;
 
+// Non-bead components that can sit on a strand. Rendered with dedicated
+// SVG treatments in BeadSwatch (link chains, wire outlines) rather than the
+// filled-silhouette pipeline beads use.
+export const COMPONENT_SHAPES = [
+  "chain",
+  "jump-ring",
+  "lobster-clasp",
+  "toggle-clasp",
+  "connector",
+  "figure-eight",
+  "triangle",
+  "cabochon",
+] as const;
+
+export const VISUAL_SHAPES = [...BEAD_SHAPES, ...COMPONENT_SHAPES] as const;
+
 export const BeadVisualSchema = z.object({
   shape: z
-    .enum(BEAD_SHAPES)
+    .enum(VISUAL_SHAPES)
     .describe(
-      "Closest basic bead shape. Use 'chip' or 'nugget' for irregular stones, 'octagon' for cornerless/faceted cubes, 'flower' for carved flower or rosebud beads."
+      "Closest basic shape. Beads: use 'chip' or 'nugget' for irregular stones, 'octagon' for cornerless/faceted cubes, 'flower' for carved flower beads. Components: 'chain' for link chain, 'jump-ring' for plain rings, 'lobster-clasp' for lobster/spring clasps, 'toggle-clasp' for toggle ring-and-bar clasps, 'connector' for straight bars with a loop at each end, 'figure-eight' for infinity links and double-ring connectors, 'triangle' for triangle charms and open geometric connectors, 'cabochon' for flat-backed focal stones (drawn hanging as a pendant)."
     ),
   length_mm: z
     .number()
     .describe(
-      "Size in mm along the stringing-hole axis — how far one bead advances a strand. For an 8x4mm rondelle this is 4; for an 8mm round bead it is 8."
+      "Size in mm along the stringing-hole axis — how far one element advances a strand. For an 8x4mm rondelle this is 4; for an 8mm round bead it is 8. For 'chain' always use 25.4: one placed element represents a 1-inch segment."
     ),
   width_mm: z
     .number()
@@ -107,12 +123,15 @@ function hexToHsl(hex: string): [number, number, number] {
   return [h * 360, s, l];
 }
 
-/** Size buckets for filtering, keyed on the bead's visible width. */
+/** Size buckets for filtering, keyed on the element's visible width. The
+ * split above 8mm keeps focal pieces (cabochons, chain segments) out of the
+ * bucket ordinary large beads live in. */
 export const SIZE_BUCKETS = [
   { key: "xs", label: "< 4mm", min: 0, max: 4 },
   { key: "s", label: "4–6mm", min: 4, max: 6 },
   { key: "m", label: "6–8mm", min: 6, max: 8 },
-  { key: "l", label: "8mm +", min: 8, max: Infinity },
+  { key: "l", label: "8–15mm", min: 8, max: 15 },
+  { key: "xl", label: "15mm +", min: 15, max: Infinity },
 ] as const;
 
 export function sizeBucketOf(visual: BeadVisual | null | undefined): string | null {

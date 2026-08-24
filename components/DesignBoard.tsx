@@ -38,6 +38,10 @@ const FALLBACK_BEAD_MM = 6;
 const MAX_BEADS = 500;
 const LENGTH_PRESETS_IN = [6, 6.5, 7, 7.5, 8, 9, 16, 18, 20];
 const VISUALS_BATCH = 60;
+// Categories whose items can sit on a strand and belong in the palette.
+// Wire/cord/tools stay inventory-only. Anything else with a generated visual
+// (e.g. a chain filed under Stringing) is also placeable.
+const PLACEABLE_CATEGORIES = new Set(["Beads", "Cabochons", "Findings"]);
 // Working-copy draft persisted to localStorage so navigation, reloads, and
 // tab closes can't lose unsaved strand work.
 const DRAFT_KEY = "design-board-draft";
@@ -47,10 +51,19 @@ interface Props {
   onMaterialsChanged: () => Promise<void>;
 }
 
+// A cabochon is worn as a pendant: it hangs below the string from a bail and
+// advances the strand by only the bail's width, not the stone's size.
+const CABOCHON_ADVANCE_MM = 6;
+const CABOCHON_BAIL_MM = 4;
+
 const beadLengthMm = (m: Material | undefined) =>
-  m?.visual?.length_mm ?? FALLBACK_BEAD_MM;
+  m?.visual?.shape === "cabochon"
+    ? CABOCHON_ADVANCE_MM
+    : m?.visual?.length_mm ?? FALLBACK_BEAD_MM;
 const beadWidthMm = (m: Material | undefined) =>
-  m?.visual?.width_mm ?? FALLBACK_BEAD_MM;
+  m?.visual?.shape === "cabochon"
+    ? CABOCHON_ADVANCE_MM
+    : m?.visual?.width_mm ?? FALLBACK_BEAD_MM;
 
 export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // --- design state (working copy) ---
@@ -84,6 +97,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const didDragRef = useRef(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [paletteSearch, setPaletteSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [familyFilter, setFamilyFilter] = useState("");
   const [sizeFilter, setSizeFilter] = useState("");
   const [error, setError] = useState("");
@@ -155,10 +169,14 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load designs"));
   }, []);
 
-  // --- lazy visual generation for beads that never came through a receipt ---
+  // --- lazy visual generation for placeable items that never came through a
+  // receipt ---
   useEffect(() => {
     const missing = materials.filter(
-      (m) => m.category === "Beads" && !m.visual && !attemptedVisuals.current.has(m.id)
+      (m) =>
+        PLACEABLE_CATEGORIES.has(m.category) &&
+        !m.visual &&
+        !attemptedVisuals.current.has(m.id)
     );
     if (missing.length === 0) return;
     missing.forEach((m) => attemptedVisuals.current.add(m.id));
@@ -218,12 +236,13 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const palette = useMemo(() => {
     const term = paletteSearch.toLowerCase();
     return materials
-      .filter((m) => m.category === "Beads" || m.visual)
+      .filter((m) => PLACEABLE_CATEGORIES.has(m.category) || m.visual)
+      .filter((m) => !categoryFilter || m.category === categoryFilter)
       .filter((m) => m.name.toLowerCase().includes(term))
       .filter((m) => !familyFilter || colorFamilyOf(m.visual) === familyFilter)
       .filter((m) => !sizeFilter || sizeBucketOf(m.visual) === sizeFilter)
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [materials, paletteSearch, familyFilter, sizeFilter]);
+  }, [materials, paletteSearch, categoryFilter, familyFilter, sizeFilter]);
 
   // --- derived strand geometry ---
   const strand = useMemo(() => {
@@ -530,12 +549,21 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
 
   // --- strand rendering constants ---
   const maxWidthMm = Math.max(10, ...strand.placed.map((p) => beadWidthMm(p.material)));
+  // Extra vertical room below the string for hanging cabochon pendants.
+  const pendantDropMm = Math.max(
+    0,
+    ...strand.placed.map((p) =>
+      p.material?.visual?.shape === "cabochon"
+        ? CABOCHON_BAIL_MM + p.material.visual.length_mm
+        : 0
+    )
+  );
   const rulerHeight = 34;
   const marginLeft = 24;
   const boardMm = Math.max(targetMm, strand.totalMm) + 30;
   const fitPx = Math.min(12, Math.max(0.8, (containerW - marginLeft - 24) / boardMm));
   const pxPerMm = zoomMode === "fit" ? fitPx : customPx;
-  const strandHeight = maxWidthMm * pxPerMm + 16;
+  const strandHeight = (maxWidthMm + pendantDropMm) * pxPerMm + 16;
   const boardWidth = marginLeft + boardMm * pxPerMm + 24;
   const centerY = 8 + (maxWidthMm * pxPerMm) / 2;
 
@@ -734,6 +762,56 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               const visual = p.material?.visual ?? null;
               const widthMm = beadWidthMm(p.material);
               const selected = range && p.index >= range.start && p.index <= range.end;
+              if (visual?.shape === "cabochon") {
+                // Pendant: a bail ring on the string with the stone hanging
+                // below it, long axis vertical.
+                const stoneW = visual.width_mm * pxPerMm;
+                const stoneL = visual.length_mm * pxPerMm;
+                const advancePx = p.lengthMm * pxPerMm;
+                const bailR = (CABOCHON_BAIL_MM / 2) * pxPerMm;
+                const stoneTop = centerY + bailR * 1.6;
+                return (
+                  <g
+                    key={p.index}
+                    transform={`translate(${marginLeft + p.xMm * pxPerMm}, 0)`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleBeadClick(p.index, e.shiftKey);
+                    }}
+                    onPointerDown={(e) => handleBeadPointerDown(p.index, e)}
+                    className="cursor-grab active:cursor-grabbing"
+                  >
+                    {selected && (
+                      <rect
+                        x={advancePx / 2 - stoneW / 2 - 1.5}
+                        y={centerY - bailR - 3}
+                        width={stoneW + 3}
+                        height={bailR * 2.6 + stoneL + 6}
+                        rx={4}
+                        fill="#a855f7"
+                        opacity={0.25}
+                      />
+                    )}
+                    <circle
+                      cx={advancePx / 2}
+                      cy={centerY + bailR * 0.6}
+                      r={bailR}
+                      fill="none"
+                      stroke="#9ca3af"
+                      strokeWidth={Math.max(1, bailR * 0.35)}
+                    />
+                    <g
+                      transform={`translate(${advancePx / 2 + stoneW / 2}, ${stoneTop}) rotate(90)`}
+                    >
+                      <Bead
+                        visual={visual}
+                        pxPerMm={pxPerMm}
+                        seed={p.material?.id ?? "missing"}
+                      />
+                    </g>
+                  </g>
+                );
+              }
               return (
                 <g
                   key={p.index}
@@ -958,11 +1036,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       {/* Palette */}
       <div className="bg-gray-50 p-4 rounded-lg">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">Bead Palette</h2>
+          <h2 className="text-lg font-semibold">Palette</h2>
           {generating && (
             <span className="text-sm text-purple-600 flex items-center gap-1">
               <RefreshCw className="w-4 h-4 animate-spin" />
-              Generating bead artwork…
+              Generating artwork…
             </span>
           )}
         </div>
@@ -971,12 +1049,24 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
               type="text"
-              placeholder="Search beads…"
+              placeholder="Search materials…"
               value={paletteSearch}
               onChange={(e) => setPaletteSearch(e.target.value)}
               className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm"
             />
           </div>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+          >
+            <option value="">All types</option>
+            {[...PLACEABLE_CATEGORIES].map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
           <BeadFilters
             familyFilter={familyFilter}
             sizeFilter={sizeFilter}
@@ -986,7 +1076,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         </div>
         {palette.length === 0 ? (
           <p className="text-sm text-gray-500 py-4 text-center">
-            No beads in inventory yet — import a receipt or add materials from the
+            Nothing to place yet — import a receipt or add materials from the
             Inventory page.
           </p>
         ) : (
@@ -1010,6 +1100,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                     </span>
                     <span className="block text-xs text-gray-500">
                       {m.quantity} in stock · ${m.unit_cost.toFixed(3)}/ea
+                      {m.visual?.shape === "chain" && (
+                        <span className="text-purple-600"> · adds 1&quot; per click</span>
+                      )}
                     </span>
                   </span>
                   <Plus className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
