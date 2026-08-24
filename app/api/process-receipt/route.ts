@@ -75,6 +75,8 @@ Examples: "Gold Spacer Beads 4mm Round", "Sterling Silver Wire 20ga", "Ocean Jas
 
 SPLITTING ASSORTMENTS — this is important:
 - If a line item contains multiple distinct variants (different sizes, colors, materials, or finishes), split it into one extracted item per variant. Example: "1200Pcs Smooth Round Spacer Beads (4mm, 6mm, 8mm, Silver & Gold)" is 6 distinct items — silver and gold in each of the three sizes.
+- This includes mixed strands: a strand whose beads are separable into distinct colors or stones is an assortment even if the listing sells it as one item. "Yellow Red Blue Tiger's Eye Beads" is 3 items (yellow, red, and blue tiger's eye); "Aquamarine Rose Quartz Amethyst Beads" is 3 items (one per stone). This applies even when the beads are the same base material or dyed — a mixed-color strand of dyed cat's eye or tiger's eye still splits into one item per color. The product photo is the deciding evidence: if a jeweler could sort the beads into piles by color, split them; the test is per-bead, not per-strand.
+- Do NOT split stones that are multicolored within each individual bead — mookaite, ocean jasper, cherry blossom agate, rhodochrosite banding, rainbow moonstone flash, and the like. Every bead shows the same mix, so it is one material; keep it as a single item (this is the only case where "Multicolor" belongs in a name).
 - Divide the total quantity evenly across variants unless the listing states a per-variant count (1200 beads across 6 variants = 200 each).
 - Allocate the line item's price across variants in proportion to their unit counts, and compute unit_cost per variant.
 
