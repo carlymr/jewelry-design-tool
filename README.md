@@ -11,6 +11,7 @@ Built with Next.js, Supabase, and the Anthropic API; deploys to Vercel.
 - **True-to-scale strand layout** with an inch ruler and a target-length marker (bracelet and necklace presets from 6" to 20")
 - **Zoom modes**: fit-to-screen (default), 1:1 real size, or manual zoom
 - **Pattern building**: click beads from the palette to place them, select a run (click / shift-click), then *Repeat ×N* or *Fill to target* to complete the strand; Backspace removes the last-placed bead
+- **Direct manipulation**: drag a bead (or a selected run) to rearrange the strand, click between beads to move the insertion point, and use arrow keys to move it precisely (Shift+arrows to select, Esc to clear)
 - **Live totals**: length vs. target, material cost, and "need X, have Y" warnings when a design overdraws inventory
 - **Saved designs** with name and target length, persisted to Supabase
 
