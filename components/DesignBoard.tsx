@@ -30,6 +30,7 @@ import {
   sizeBucketOf,
   type BeadVisual,
 } from "@/lib/bead-visual";
+import { curveGeometry, curvePath } from "@/lib/strand-layout";
 import type { Design, DesignBead, Material } from "@/lib/types";
 
 const MM_PER_INCH = 25.4;
@@ -88,6 +89,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const [insertion, setInsertion] = useState(0);
   const [repeatCount, setRepeatCount] = useState(3);
   const [zoomMode, setZoomMode] = useState<"fit" | "custom">("fit");
+  // "line" is the straight editing strand; "curve" shows the piece as worn
+  // (circle for bracelet lengths, hanging drape for necklaces).
+  const [layout, setLayout] = useState<"line" | "curve">("line");
   const [customPx, setCustomPx] = useState(6);
   const [containerW, setContainerW] = useState(1100);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -373,7 +377,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       return;
     }
     setSelection(null);
-    setInsertion(gapIndexFromClientX(e.clientX));
+    setInsertion(gapIndexFromClientX(e.clientX, e.clientY));
   };
 
   // --- drag to rearrange ---
@@ -404,7 +408,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     // A few px of slop so ordinary clicks don't register as drags.
     if (!d.moved && Math.abs(e.clientX - d.startX) < 5) return;
     d.moved = true;
-    setDropIndex(gapIndexFromClientX(e.clientX));
+    setDropIndex(gapIndexFromClientX(e.clientX, e.clientY));
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -416,7 +420,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       setTimeout(() => {
         didDragRef.current = false;
       }, 0);
-      moveDraggedTo(gapIndexFromClientX(e.clientX));
+      moveDraggedTo(gapIndexFromClientX(e.clientX, e.clientY));
     }
     dragRef.current = null;
     setDropIndex(null);
@@ -568,11 +572,50 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const rulerHeight = 34;
   const marginLeft = 24;
   const boardMm = Math.max(targetMm, strand.totalMm) + 30;
-  const fitPx = Math.min(12, Math.max(0.8, (containerW - marginLeft - 24) / boardMm));
+  // "As worn" curve spans the full target (or the strand, if it overran),
+  // so the unfilled remainder is visible as bare string.
+  const curve = curveGeometry(Math.max(targetMm, strand.totalMm));
+  // Padding around the curve for bead widths and hanging pendants.
+  const curvePadMm = maxWidthMm / 2 + pendantDropMm + 4;
+  const fitPx =
+    layout === "curve"
+      ? Math.min(12, Math.max(0.8, (containerW - 16) / (curve.widthMm + curvePadMm * 2)))
+      : Math.min(12, Math.max(0.8, (containerW - marginLeft - 24) / boardMm));
   const pxPerMm = zoomMode === "fit" ? fitPx : customPx;
   const strandHeight = (maxWidthMm + pendantDropMm) * pxPerMm + 16;
   const boardWidth = marginLeft + boardMm * pxPerMm + 24;
   const centerY = 8 + (maxWidthMm * pxPerMm) / 2;
+  const curveOffPx = curvePadMm * pxPerMm;
+  const curveWidthPx = (curve.widthMm + curvePadMm * 2) * pxPerMm;
+  const curveHeightPx = (curve.heightMm + curvePadMm * 2) * pxPerMm;
+
+  /** Position of arc length s on the worn curve, in svg px. */
+  const curvePointPx = (sMm: number) => {
+    const p = curve.pointAt(Math.min(Math.max(sMm, 0), curve.curveMm));
+    return {
+      x: curveOffPx + p.x * pxPerMm,
+      y: curveOffPx + p.y * pxPerMm,
+      tangentDeg: p.tangentDeg,
+      hangDeg: p.hangDeg,
+    };
+  };
+
+  /** Caret/drop tick drawn perpendicular to the worn curve. */
+  const curveTick = (sMm: number, stroke: string, strokeWidth: number, extraPx: number) => {
+    const pt = curvePointPx(sMm);
+    const rad = ((pt.tangentDeg + 90) * Math.PI) / 180;
+    const r = (maxWidthMm / 2) * pxPerMm + extraPx;
+    return (
+      <line
+        x1={pt.x - Math.cos(rad) * r}
+        y1={pt.y - Math.sin(rad) * r}
+        x2={pt.x + Math.cos(rad) * r}
+        y2={pt.y + Math.sin(rad) * r}
+        stroke={stroke}
+        strokeWidth={strokeWidth}
+      />
+    );
+  };
 
   const zoomBy = (factor: number) => {
     setZoomMode("custom");
@@ -597,34 +640,33 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // Round away float noise (177.8 / 25.4 = 7.000000000000001) so preset
   // matching and display stay clean.
   const targetIn = Math.round((targetMm / MM_PER_INCH) * 100) / 100;
-  const insertionX =
-    marginLeft +
-    (insertion >= strand.placed.length
-      ? strand.totalMm
-      : strand.placed[insertion]?.xMm ?? 0) *
-      pxPerMm;
+  /** Arc length of the gap before index i (equals total at the strand end). */
+  const sAtGap = (i: number) =>
+    i >= strand.placed.length ? strand.totalMm : strand.placed[i]?.xMm ?? 0;
+
+  const insertionX = marginLeft + sAtGap(insertion) * pxPerMm;
 
   // Nearest gap between beads for a pointer position (used by strand clicks
   // and drag-drop). Declared here because it needs pxPerMm from above.
-  const gapIndexFromClientX = (clientX: number) => {
+  const gapIndexFromClientX = (clientX: number, clientY: number) => {
     const svg = svgRef.current;
     if (!svg) return beads.length;
-    const xMm = (clientX - svg.getBoundingClientRect().left - marginLeft) / pxPerMm;
+    const rect = svg.getBoundingClientRect();
+    const sMm =
+      layout === "curve"
+        ? curve.arcLengthAt(
+            (clientX - rect.left - curveOffPx) / pxPerMm,
+            (clientY - rect.top - curveOffPx) / pxPerMm
+          )
+        : (clientX - rect.left - marginLeft) / pxPerMm;
     let gap = 0;
     for (const p of strand.placed) {
-      if (xMm > p.xMm + p.lengthMm / 2) gap = p.index + 1;
+      if (sMm > p.xMm + p.lengthMm / 2) gap = p.index + 1;
     }
     return gap;
   };
 
-  const dropX =
-    dropIndex === null
-      ? null
-      : marginLeft +
-        (dropIndex >= strand.placed.length
-          ? strand.totalMm
-          : strand.placed[dropIndex]?.xMm ?? 0) *
-          pxPerMm;
+  const dropX = dropIndex === null ? null : marginLeft + sAtGap(dropIndex) * pxPerMm;
 
   return (
     <div
@@ -716,6 +758,30 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             <ZoomIn className="w-4 h-4" />
           </button>
         </div>
+        <div className="flex items-center gap-1 bg-white border border-gray-300 rounded-md p-0.5">
+          <button
+            onClick={() => setLayout("line")}
+            className={`px-2 py-1.5 text-xs rounded ${
+              layout === "line"
+                ? "bg-purple-100 text-purple-700 font-medium"
+                : "text-gray-500 hover:text-gray-900"
+            }`}
+            title="Straight editing strand with ruler"
+          >
+            Line
+          </button>
+          <button
+            onClick={() => setLayout("curve")}
+            className={`px-2 py-1.5 text-xs rounded ${
+              layout === "curve"
+                ? "bg-purple-100 text-purple-700 font-medium"
+                : "text-gray-500 hover:text-gray-900"
+            }`}
+            title="How the piece lies when worn — a circle for bracelet lengths, a hanging drape for necklaces"
+          >
+            As worn
+          </button>
+        </div>
         <button
           onClick={saveDesign}
           disabled={saving || !dirty}
@@ -746,41 +812,63 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         <div className="overflow-x-auto" tabIndex={0} ref={boardRef}>
           <svg
             ref={svgRef}
-            width={boardWidth}
-            height={strandHeight + rulerHeight}
+            width={layout === "curve" ? curveWidthPx : boardWidth}
+            height={layout === "curve" ? curveHeightPx : strandHeight + rulerHeight}
             onClick={handleBoardClick}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={cancelDrag}
             className="block cursor-default touch-none"
           >
-            {/* string */}
-            <line
-              x1={marginLeft - 12}
-              y1={centerY}
-              x2={marginLeft + strand.totalMm * pxPerMm + 12}
-              y2={centerY}
-              stroke="#a8a29e"
-              strokeWidth={1.5}
-            />
+            {/* string: straight, or the full worn curve so the unfilled
+                remainder shows as bare string */}
+            {layout === "curve" ? (
+              <path
+                transform={`translate(${curveOffPx}, ${curveOffPx}) scale(${pxPerMm})`}
+                d={curvePath(curve)}
+                fill="none"
+                stroke="#a8a29e"
+                strokeWidth={1.5 / pxPerMm}
+              />
+            ) : (
+              <line
+                x1={marginLeft - 12}
+                y1={centerY}
+                x2={marginLeft + strand.totalMm * pxPerMm + 12}
+                y2={centerY}
+                stroke="#a8a29e"
+                strokeWidth={1.5}
+              />
+            )}
 
-            {/* beads */}
+            {/* beads — the outer frame puts the element's center at its spot
+                on the strand with local x along the direction of travel, so
+                the same drawing works straight or curved */}
             {strand.placed.map((p) => {
               const visual = p.material?.visual ?? null;
               const widthMm = beadWidthMm(p.material);
               const selected = range && p.index >= range.start && p.index <= range.end;
+              const centerS = p.xMm + p.lengthMm / 2;
+              const lengthPx = p.lengthMm * pxPerMm;
+              const widthPx = widthMm * pxPerMm;
               if (visual?.shape === "cabochon") {
-                // Pendant: a bail ring on the string with the stone hanging
-                // below it, long axis vertical.
+                // Pendant local frame: bail at the origin, stone hanging
+                // toward +y. On the worn curve, +y is rotated to gravity
+                // (drape) or radially outward (bracelet).
                 const stoneW = visual.width_mm * pxPerMm;
                 const stoneL = visual.length_mm * pxPerMm;
-                const advancePx = p.lengthMm * pxPerMm;
                 const bailR = (CABOCHON_BAIL_MM / 2) * pxPerMm;
-                const stoneTop = centerY + bailR * 1.6;
+                const frame =
+                  layout === "curve"
+                    ? (() => {
+                        const pt = curvePointPx(centerS);
+                        return `translate(${pt.x}, ${pt.y}) rotate(${pt.hangDeg - 90})`;
+                      })()
+                    : `translate(${marginLeft + centerS * pxPerMm}, ${centerY})`;
                 return (
                   <g
                     key={p.index}
-                    transform={`translate(${marginLeft + p.xMm * pxPerMm}, 0)`}
+                    transform={frame}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleBeadClick(p.index, e.shiftKey);
@@ -790,8 +878,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                   >
                     {selected && (
                       <rect
-                        x={advancePx / 2 - stoneW / 2 - 1.5}
-                        y={centerY - bailR - 3}
+                        x={-stoneW / 2 - 1.5}
+                        y={-bailR - 3}
                         width={stoneW + 3}
                         height={bailR * 2.6 + stoneL + 6}
                         rx={4}
@@ -800,16 +888,14 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                       />
                     )}
                     <circle
-                      cx={advancePx / 2}
-                      cy={centerY + bailR * 0.6}
+                      cx={0}
+                      cy={bailR * 0.6}
                       r={bailR}
                       fill="none"
                       stroke="#9ca3af"
                       strokeWidth={Math.max(1, bailR * 0.35)}
                     />
-                    <g
-                      transform={`translate(${advancePx / 2 + stoneW / 2}, ${stoneTop}) rotate(90)`}
-                    >
+                    <g transform={`translate(${stoneW / 2}, ${bailR * 1.6}) rotate(90)`}>
                       <Bead
                         visual={visual}
                         pxPerMm={pxPerMm}
@@ -819,10 +905,17 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                   </g>
                 );
               }
+              const frame =
+                layout === "curve"
+                  ? (() => {
+                      const pt = curvePointPx(centerS);
+                      return `translate(${pt.x}, ${pt.y}) rotate(${pt.tangentDeg})`;
+                    })()
+                  : `translate(${marginLeft + centerS * pxPerMm}, ${centerY})`;
               return (
                 <g
                   key={p.index}
-                  transform={`translate(${marginLeft + p.xMm * pxPerMm}, ${centerY - (widthMm * pxPerMm) / 2})`}
+                  transform={frame}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleBeadClick(p.index, e.shiftKey);
@@ -830,63 +923,73 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                   onPointerDown={(e) => handleBeadPointerDown(p.index, e)}
                   className="cursor-grab active:cursor-grabbing"
                 >
-                  {selected && (
-                    <rect
-                      x={-1.5}
-                      y={-3}
-                      width={p.lengthMm * pxPerMm + 3}
-                      height={widthMm * pxPerMm + 6}
-                      rx={4}
-                      fill="#a855f7"
-                      opacity={0.25}
-                    />
-                  )}
-                  {visual ? (
-                    <Bead
-                      visual={visual}
-                      pxPerMm={pxPerMm}
-                      seed={p.material?.id ?? "missing"}
-                    />
-                  ) : (
-                    <g>
-                      <ellipse
-                        cx={(p.lengthMm * pxPerMm) / 2}
-                        cy={(widthMm * pxPerMm) / 2}
-                        rx={(p.lengthMm * pxPerMm) / 2}
-                        ry={(widthMm * pxPerMm) / 2}
-                        fill="#e5e7eb"
-                        stroke="#9ca3af"
-                        strokeDasharray="3 2"
+                  <g transform={`translate(${-lengthPx / 2}, ${-widthPx / 2})`}>
+                    {selected && (
+                      <rect
+                        x={-1.5}
+                        y={-3}
+                        width={lengthPx + 3}
+                        height={widthPx + 6}
+                        rx={4}
+                        fill="#a855f7"
+                        opacity={0.25}
                       />
-                    </g>
-                  )}
+                    )}
+                    {visual ? (
+                      <Bead
+                        visual={visual}
+                        pxPerMm={pxPerMm}
+                        seed={p.material?.id ?? "missing"}
+                      />
+                    ) : (
+                      <g>
+                        <ellipse
+                          cx={lengthPx / 2}
+                          cy={widthPx / 2}
+                          rx={lengthPx / 2}
+                          ry={widthPx / 2}
+                          fill="#e5e7eb"
+                          stroke="#9ca3af"
+                          strokeDasharray="3 2"
+                        />
+                      </g>
+                    )}
+                  </g>
                 </g>
               );
             })}
 
             {/* insertion caret */}
-            <line
-              x1={insertionX}
-              y1={centerY - (maxWidthMm * pxPerMm) / 2 - 4}
-              x2={insertionX}
-              y2={centerY + (maxWidthMm * pxPerMm) / 2 + 4}
-              stroke="#a855f7"
-              strokeWidth={2}
-            />
-
-            {/* drop indicator while dragging */}
-            {dropX !== null && (
+            {layout === "curve" ? (
+              curveTick(sAtGap(insertion), "#a855f7", 2, 4)
+            ) : (
               <line
-                x1={dropX}
-                y1={centerY - (maxWidthMm * pxPerMm) / 2 - 6}
-                x2={dropX}
-                y2={centerY + (maxWidthMm * pxPerMm) / 2 + 6}
-                stroke="#16a34a"
-                strokeWidth={2.5}
+                x1={insertionX}
+                y1={centerY - (maxWidthMm * pxPerMm) / 2 - 4}
+                x2={insertionX}
+                y2={centerY + (maxWidthMm * pxPerMm) / 2 + 4}
+                stroke="#a855f7"
+                strokeWidth={2}
               />
             )}
 
-            {/* ruler */}
+            {/* drop indicator while dragging */}
+            {dropIndex !== null &&
+              (layout === "curve" ? (
+                curveTick(sAtGap(dropIndex), "#16a34a", 2.5, 6)
+              ) : (
+                <line
+                  x1={dropX ?? 0}
+                  y1={centerY - (maxWidthMm * pxPerMm) / 2 - 6}
+                  x2={dropX ?? 0}
+                  y2={centerY + (maxWidthMm * pxPerMm) / 2 + 6}
+                  stroke="#16a34a"
+                  strokeWidth={2.5}
+                />
+              ))}
+
+            {/* ruler (straight view only) */}
+            {layout === "line" && (
             <g transform={`translate(0, ${strandHeight})`}>
               <line
                 x1={marginLeft}
@@ -940,6 +1043,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 </text>
               </g>
             </g>
+            )}
           </svg>
         </div>
 
