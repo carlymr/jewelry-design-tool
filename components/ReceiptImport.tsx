@@ -5,12 +5,7 @@ import { Upload, Eye, Trash2 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import { apiHeaders } from "@/lib/auth";
 import { addMaterials } from "@/lib/materials";
-import {
-  downscaleImage,
-  IMAGE_DOWNSCALE_THRESHOLD,
-  MAX_UPLOAD_BYTES,
-  uploadTransient,
-} from "@/lib/photo-upload";
+import { uploadForProcessing } from "@/lib/photo-upload";
 import type { ExtractedItem } from "@/lib/types";
 
 interface Props {
@@ -32,25 +27,9 @@ export default function ReceiptImport({ onImported }: Props) {
     setNotes(null);
 
     try {
-      let blob: Blob = file;
-      let mediaType = file.type;
-
-      if (file.size > MAX_UPLOAD_BYTES) {
-        throw new Error("File is too large (max 20MB).");
-      }
-      if (file.type === "application/pdf") {
-        // fine as-is
-      } else if (file.type.startsWith("image/")) {
-        if (file.size > IMAGE_DOWNSCALE_THRESHOLD) {
-          blob = await downscaleImage(file);
-          mediaType = "image/jpeg";
-        }
-      } else {
-        throw new Error("Upload an image (PNG, JPG, WebP) or PDF.");
-      }
-
-      // Upload directly to Supabase Storage, then hand the API route the path.
-      const path = await uploadTransient(blob, mediaType);
+      // Validate/downscale/upload directly to Supabase Storage, then hand
+      // the API route only the path.
+      const { path, mediaType } = await uploadForProcessing(file, { allowPdf: true });
 
       const response = await fetch("/api/process-receipt", {
         method: "POST",

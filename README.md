@@ -100,9 +100,11 @@ components/
   BeadSwatch.tsx               # SVG renderer for beads + strand components
   InventoryTable.tsx           # table, filters, pagination, CSV import/export
   ReceiptImport.tsx            # upload, extraction preview, import to DB
+  PhotoVisualButton.tsx        # camera button: photo → visual spec
   PricingStudio.tsx            # design costs, extras, labor/markup, listing
 lib/
   bead-visual.ts               # visual spec schema + color/size helpers
+  photo-upload.ts              # shared downscale + transient-upload helpers
   designs.ts / materials.ts    # Supabase CRUD
 supabase/migrations/           # schema (materials, receipts bucket, designs)
 ```

@@ -394,6 +394,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 onError={setError}
                 className="text-gray-300 hover:text-purple-600 p-1 rounded"
               />
+              <span aria-hidden className="w-px h-4 bg-gray-200" />
               <button
                 onClick={() => handleDelete(material)}
                 disabled={busy}

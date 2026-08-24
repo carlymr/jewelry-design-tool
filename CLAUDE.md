@@ -37,6 +37,7 @@ Two independent data paths:
    - Client uploads the file **directly to the private `receipts` Storage bucket** (`components/ReceiptImport.tsx`), because Vercel serverless functions cap request bodies at ~4.5MB. Never route file uploads through an API route.
    - `app/api/process-receipt/route.ts` receives only the storage path, downloads the file, sends it to Claude (`claude-opus-4-8` via `client.messages.parse` with a Zod schema / structured outputs), and **deletes the file in a `finally` block** — receipts are transient, the bucket should stay empty.
    - The route uses the **Storage REST API via `fetch`, not supabase-js** — supabase-js requires a native WebSocket at construction, which breaks on older Node server-side. Keep it that way.
+   - Storage calls run with the **caller's session token, not a service key** — the `receipts` bucket has been authenticated-only RLS since migration 0006, and the routes hold no admin credential. `isAuthorized()` validates the forwarded JWT before it's reused for storage. (`analyze-photo` follows the same pattern; bead-photo uploads reuse the receipts bucket and inherit its RLS and size/type limits.)
 
 The extraction prompt in the route enforces a naming convention (`[Material/Color] [Item Type] [Size] [Shape/Detail]`, no pack counts) and splits assortment line items into per-variant entries with proportional price allocation. Changes to extraction behavior go in `EXTRACTION_PROMPT` / `ExtractedItemSchema` there; the schema's `.describe()` strings are part of the prompt.
 

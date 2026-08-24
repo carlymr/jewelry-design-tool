@@ -19,7 +19,13 @@ const ACCEPTED_IMAGE_TYPES = new Set([
 ]);
 
 export async function downscaleImage(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file);
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    // Most often a format the browser can't decode (e.g. HEIC in Chromium).
+    throw new Error("Couldn't read this image — try a JPG, PNG, or WebP.");
+  }
   const maxDim = 2000;
   const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
@@ -50,15 +56,25 @@ export async function uploadTransient(blob: Blob, mediaType: string): Promise<st
   return path;
 }
 
-/** Validate, downscale/re-encode if needed, and upload a photo. */
-export async function uploadPhoto(
-  file: File
+/** Validate, downscale/re-encode if needed, and upload a file for AI
+ * processing. The whole size/type/downscale decision tree lives here so the
+ * receipt and photo flows can't drift apart. */
+export async function uploadForProcessing(
+  file: File,
+  opts: { allowPdf?: boolean } = {}
 ): Promise<{ path: string; mediaType: string }> {
   if (file.size > MAX_UPLOAD_BYTES) {
     throw new Error("File is too large (max 20MB).");
   }
+  if (opts.allowPdf && file.type === "application/pdf") {
+    return { path: await uploadTransient(file, file.type), mediaType: file.type };
+  }
   if (!file.type.startsWith("image/")) {
-    throw new Error("Upload a photo (PNG, JPG, WebP).");
+    throw new Error(
+      opts.allowPdf
+        ? "Upload an image (PNG, JPG, WebP) or PDF."
+        : "Upload a photo (PNG, JPG, WebP)."
+    );
   }
   let blob: Blob = file;
   let mediaType = file.type;
@@ -68,3 +84,6 @@ export async function uploadPhoto(
   }
   return { path: await uploadTransient(blob, mediaType), mediaType };
 }
+
+/** Photo-only upload (camera buttons). */
+export const uploadPhoto = (file: File) => uploadForProcessing(file);

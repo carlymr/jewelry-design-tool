@@ -42,9 +42,9 @@ export default function PhotoVisualButton({
       await updateMaterial(material.id, { visual: result.visual });
       await onUpdated();
     } catch (e) {
-      onError(
-        e instanceof Error ? e.message : "Failed to analyze the photo"
-      );
+      // Errors land in a banner shared across rows, so name the material.
+      const reason = e instanceof Error ? e.message : "Failed to analyze the photo";
+      onError(`"${material.name}": ${reason}`);
     } finally {
       setBusy(false);
     }
@@ -67,8 +67,9 @@ export default function PhotoVisualButton({
         onClick={() => inputRef.current?.click()}
         disabled={busy}
         className={className ?? "p-1 text-gray-300 hover:text-purple-600 shrink-0"}
-        title="Upload a photo for accurate artwork"
-        aria-label="Upload a photo for accurate artwork"
+        title={busy ? "Analyzing photo… (can take up to a minute)" : "Upload a photo for accurate artwork"}
+        aria-label={busy ? "Analyzing photo" : "Upload a photo for accurate artwork"}
+        aria-busy={busy}
       >
         {busy ? (
           <RefreshCw className="w-3.5 h-3.5 animate-spin text-purple-600" />
