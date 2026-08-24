@@ -94,7 +94,7 @@ ESTIMATING UNITS:
 Ignore non-material lines like shipping, taxes, and store credit. Only include materials that would be used to make jewelry. If the document doesn't appear to be a receipt or contains no jewelry materials, return an empty items array and explain in notes.`;
 
 export async function POST(request: NextRequest) {
-  if (!isAuthorized(request)) {
+  if (!(await isAuthorized(request))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   if (!process.env.ANTHROPIC_API_KEY) {

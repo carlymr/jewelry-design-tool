@@ -44,7 +44,13 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 2. In the SQL Editor, run each file in `supabase/migrations/` in order.
 3. From **Project Settings → API**, copy the project URL and publishable key.
 
-> The migrations enable RLS with permissive policies — fine for a single-user tool. Tighten them when auth is added.
+> Migrations `0001`–`0005` are safe to run in order. **`0006_user_scoping_lockdown.sql` is special**: run it only after signing in once and backfilling any legacy rows to your user id (instructions in the file) — it removes anonymous access.
+
+### Google sign-in
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create an **OAuth client ID** (type: Web application) with the authorized redirect URI `https://<your-project-ref>.supabase.co/auth/v1/callback`.
+2. In Supabase → **Authentication → Providers → Google**, enable the provider and paste the client ID and secret.
+3. In Supabase → **Authentication → URL Configuration**, set the Site URL to your production URL and add `http://localhost:3000` to the additional redirect URLs for local dev.
 
 ### 2. Environment variables
 

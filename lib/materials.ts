@@ -1,4 +1,5 @@
 import { getSupabase } from "./supabase";
+import { getUserId } from "./auth";
 import type { Material, NewMaterial } from "./types";
 
 export async function listMaterials(): Promise<Material[]> {
@@ -11,9 +12,12 @@ export async function listMaterials(): Promise<Material[]> {
 }
 
 export async function addMaterials(materials: NewMaterial[]): Promise<Material[]> {
+  // Stamp the owner client-side until the 0006 lockdown gives user_id a
+  // DB-side default of auth.uid().
+  const user_id = await getUserId();
   const { data, error } = await getSupabase()
     .from("materials")
-    .insert(materials)
+    .insert(materials.map((m) => ({ ...m, user_id })))
     .select();
   if (error) throw new Error(error.message);
   return data ?? [];

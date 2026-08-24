@@ -1,4 +1,5 @@
 import { getSupabase } from "./supabase";
+import { getUserId } from "./auth";
 import type { Design, NewDesign } from "./types";
 
 export async function listDesigns(): Promise<Design[]> {
@@ -11,9 +12,12 @@ export async function listDesigns(): Promise<Design[]> {
 }
 
 export async function createDesign(design: NewDesign): Promise<Design> {
+  // Stamp the owner client-side until the 0006 lockdown gives user_id a
+  // DB-side default of auth.uid().
+  const user_id = await getUserId();
   const { data, error } = await getSupabase()
     .from("designs")
-    .insert(design)
+    .insert({ ...design, user_id })
     .select()
     .single();
   if (error) throw new Error(error.message);

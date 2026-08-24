@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LogOut } from "lucide-react";
+import { useSession } from "@/components/AuthGate";
+import { signOut } from "@/lib/auth";
 
 const LINKS = [
   { href: "/", label: "Design Board" },
@@ -11,6 +14,7 @@ const LINKS = [
 
 export default function NavBar() {
   const pathname = usePathname();
+  const session = useSession();
   return (
     <header className="border-b border-gray-200 bg-white">
       <nav className="max-w-6xl mx-auto px-6 flex items-center gap-6 h-12">
@@ -28,6 +32,18 @@ export default function NavBar() {
             {link.label}
           </Link>
         ))}
+        {session && (
+          <span className="ml-auto flex items-center gap-3 text-sm text-gray-500">
+            <span className="hidden sm:inline">{session.user.email}</span>
+            <button
+              onClick={() => signOut()}
+              className="p-1.5 text-gray-400 hover:text-gray-700 rounded"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </span>
+        )}
       </nav>
     </header>
   );

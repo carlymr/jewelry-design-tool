@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import BeadSwatch, { Bead } from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
-import { apiHeaders } from "@/lib/api-token";
+import { apiHeaders } from "@/lib/auth";
 import { updateMaterial } from "@/lib/materials";
 import {
   createDesign,
@@ -188,7 +188,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           const batch = missing.slice(i, i + VISUALS_BATCH);
           const res = await fetch("/api/generate-visuals", {
             method: "POST",
-            headers: apiHeaders(),
+            headers: await apiHeaders(),
             body: JSON.stringify({
               materials: batch.map((m) => ({ id: m.id, name: m.name })),
             }),
@@ -213,7 +213,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     try {
       const res = await fetch("/api/generate-visuals", {
         method: "POST",
-        headers: apiHeaders(),
+        headers: await apiHeaders(),
         body: JSON.stringify({
           materials: [{ id: material.id, name: material.name }],
         }),

@@ -12,7 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
-import { apiHeaders } from "@/lib/api-token";
+import { apiHeaders } from "@/lib/auth";
 import { listDesigns, updateDesign } from "@/lib/designs";
 import type {
   Design,
@@ -310,7 +310,7 @@ export default function PricingStudio({ materials }: Props) {
       }
       const res = await fetch("/api/generate-listing", {
         method: "POST",
-        headers: apiHeaders(),
+        headers: await apiHeaders(),
         body: JSON.stringify({
           design_name: design.name,
           materials: usedMaterials,

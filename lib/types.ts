@@ -19,13 +19,15 @@ export interface Material {
   unit_type: string;
   supplier: string;
   visual: BeadVisual | null;
+  /** Owner; null only on legacy rows created before auth (see migration 0005). */
+  user_id: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export type NewMaterial = Omit<
   Material,
-  "id" | "created_at" | "updated_at" | "visual"
+  "id" | "created_at" | "updated_at" | "visual" | "user_id"
 > & {
   visual?: BeadVisual | null;
 };
@@ -50,6 +52,8 @@ export interface Design {
   beads: DesignBead[];
   pricing: DesignPricing | null;
   listing: DesignListing | null;
+  /** Owner; null only on legacy rows created before auth (see migration 0005). */
+  user_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -80,7 +84,7 @@ export interface DesignListing {
 
 export type NewDesign = Omit<
   Design,
-  "id" | "created_at" | "updated_at" | "pricing" | "listing"
+  "id" | "created_at" | "updated_at" | "pricing" | "listing" | "user_id"
 > & {
   pricing?: DesignPricing | null;
   listing?: DesignListing | null;

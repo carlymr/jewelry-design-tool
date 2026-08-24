@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import AuthGate from "@/components/AuthGate";
 import NavBar from "@/components/NavBar";
 import "./globals.css";
 
@@ -13,8 +14,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-white text-gray-900 antialiased">
-        <NavBar />
-        {children}
+        <AuthGate>
+          <NavBar />
+          {children}
+        </AuthGate>
       </body>
     </html>
   );
