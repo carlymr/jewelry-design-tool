@@ -778,7 +778,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                       e.stopPropagation();
                       handleBeadClick(p.index, e.shiftKey);
                     }}
-                    className="cursor-pointer"
+                    onPointerDown={(e) => handleBeadPointerDown(p.index, e)}
+                    className="cursor-grab active:cursor-grabbing"
                   >
                     {selected && (
                       <rect
