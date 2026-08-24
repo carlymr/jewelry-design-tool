@@ -23,7 +23,8 @@ export function onAuthChange(
 export async function signInWithGoogle(): Promise<void> {
   const { error } = await getSupabase().auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo: window.location.origin },
+    // Full href so sign-in returns to the page the user started on.
+    options: { redirectTo: window.location.href },
   });
   if (error) throw new Error(error.message);
 }

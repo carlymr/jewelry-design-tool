@@ -14,12 +14,25 @@ export const useSession = () => useContext(SessionContext);
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [error, setError] = useState("");
+  const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => {
+    // On the OAuth-callback landing, the auth-change event can fire before a
+    // concurrently in-flight getSession() resolves null — don't let the
+    // stale result flash the sign-in screen back.
+    let sawAuthEvent = false;
+    const unsubscribe = onAuthChange((s) => {
+      sawAuthEvent = true;
+      setSession(s);
+    });
     getSession()
-      .then(setSession)
-      .catch(() => setSession(null));
-    return onAuthChange(setSession);
+      .then((s) => {
+        if (!sawAuthEvent) setSession(s);
+      })
+      .catch(() => {
+        if (!sawAuthEvent) setSession(null);
+      });
+    return unsubscribe;
   }, []);
 
   if (session === undefined) {
@@ -43,11 +56,15 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           <button
             onClick={() => {
               setError("");
-              signInWithGoogle().catch((e) =>
-                setError(e instanceof Error ? e.message : "Sign-in failed")
-              );
+              setSigningIn(true);
+              signInWithGoogle().catch((e) => {
+                console.error("Sign-in failed:", e);
+                setSigningIn(false);
+                setError("Something went wrong signing in — please try again.");
+              });
             }}
-            className="w-full flex items-center justify-center gap-3 px-4 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium text-gray-700"
+            disabled={signingIn}
+            className="w-full flex items-center justify-center gap-3 px-4 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium text-gray-700 disabled:opacity-60 disabled:cursor-wait"
           >
             <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
               <path
@@ -67,7 +84,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                 d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
               />
             </svg>
-            Continue with Google
+            {signingIn ? "Redirecting to Google…" : "Continue with Google"}
           </button>
           {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
         </div>

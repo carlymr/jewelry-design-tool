@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
+import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { listDesigns, updateDesign } from "@/lib/designs";
 import type {
@@ -57,9 +58,11 @@ const DEFAULT_SETTINGS: Settings = {
   description_template: "",
 };
 
-function loadSettings(): Settings {
+function loadSettings(key: string): Settings {
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
+    // Fall back to the pre-auth global key so rates saved before per-user
+    // namespacing carry over to the first account that signs in.
+    const raw = localStorage.getItem(key) ?? localStorage.getItem(SETTINGS_KEY);
     if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
   } catch {
     // fall through to defaults
@@ -72,6 +75,12 @@ interface Props {
 }
 
 export default function PricingStudio({ materials }: Props) {
+  // Settings and drafts are namespaced per account so nothing leaks between
+  // sign-ins on a shared browser.
+  const session = useSession();
+  const settingsKey = `${SETTINGS_KEY}:${session?.user.id ?? "local"}`;
+  const draftKey = `${DRAFT_KEY}:${session?.user.id ?? "local"}`;
+
   const [designs, setDesigns] = useState<Design[]>([]);
   const [designsLoaded, setDesignsLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -95,42 +104,43 @@ export default function PricingStudio({ materials }: Props) {
   );
 
   useEffect(() => {
-    setSettings(loadSettings());
-  }, []);
+    setSettings(loadSettings(settingsKey));
+  }, [settingsKey]);
 
   // --- read any unsaved draft (must be declared before the persist effect:
   // both run on mount, and the clean-state persist would clear it first) ---
   const draftRef = useRef<PricingDraft | null>(null);
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(DRAFT_KEY);
+      const raw = localStorage.getItem(draftKey);
       if (raw) draftRef.current = JSON.parse(raw);
     } catch {
       // A corrupt draft shouldn't break the page.
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --- persist the working copy while dirty; clear it once saved/discarded ---
   useEffect(() => {
     try {
       if (!dirty) {
-        localStorage.removeItem(DRAFT_KEY);
+        localStorage.removeItem(draftKey);
       } else {
         localStorage.setItem(
-          DRAFT_KEY,
+          draftKey,
           JSON.stringify({ selectedId, laborHours, extras, listing })
         );
       }
     } catch {
       // Quota/private-mode failures just lose the safety net, nothing else.
     }
-  }, [dirty, selectedId, laborHours, extras, listing]);
+  }, [dirty, selectedId, laborHours, extras, listing, draftKey]);
 
   const updateSettings = (fields: Partial<Settings>) => {
     const next = { ...settings, ...fields };
     setSettings(next);
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+      localStorage.setItem(settingsKey, JSON.stringify(next));
     } catch {
       // losing persistence is fine
     }

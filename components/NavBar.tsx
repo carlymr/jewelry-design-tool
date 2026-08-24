@@ -39,6 +39,7 @@ export default function NavBar() {
               onClick={() => signOut()}
               className="p-1.5 text-gray-400 hover:text-gray-700 rounded"
               title="Sign out"
+              aria-label="Sign out"
             >
               <LogOut className="w-4 h-4" />
             </button>
