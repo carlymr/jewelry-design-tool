@@ -23,6 +23,7 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 - Receipt-imported beads get **photo-informed** visuals during extraction (color and finish read from the product images on the receipt)
 - Everything else (CSV imports, hand-entered items, legacy inventory) is backfilled **from the material name** the first time the design board loads
 - A regenerate button on each palette entry re-derives any spec that looks off
+- A **camera button** (palette and Inventory) accepts a close-up photo of the actual material and re-derives the spec from what the photo shows — the most accurate option
 
 ### Inventory
 
@@ -93,6 +94,7 @@ app/
   api/process-receipt/route.ts # receipt extraction via Claude (+ photo-informed visuals)
   api/generate-visuals/route.ts# name-only visual generation (batch fallback)
   api/generate-listing/route.ts# Etsy listing draft from a design's composition
+  api/analyze-photo/route.ts   # photo-accurate visual spec for one material
 components/
   DesignBoard.tsx              # strand, ruler, palette, pattern tools, totals
   BeadSwatch.tsx               # SVG renderer for beads + strand components
