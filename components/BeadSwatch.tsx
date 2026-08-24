@@ -206,7 +206,7 @@ function componentElement(
           <circle
             cx={ringR}
             cy={W / 2}
-            r={ringR - Math.max(0.8, ringR * 0.18) / 2}
+            r={Math.max(0.5, ringR - Math.max(0.8, ringR * 0.18) / 2)}
             fill="none"
             stroke={paint}
             strokeWidth={Math.max(0.8, ringR * 0.3)}
@@ -259,7 +259,8 @@ function componentElement(
     }
     case "connector": {
       // A bar with a loop at each end (spacer bars, chandelier links).
-      const r = Math.max(1.5, Math.min(L * 0.12, W * 0.4));
+      // Capped at L/4 so the loops stay inside the element's footprint.
+      const r = Math.min(Math.max(1.5, Math.min(L * 0.12, W * 0.4)), L / 4);
       const barH = Math.max(1.5, W * 0.2);
       return (
         <g>
@@ -308,13 +309,9 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead" }: BeadP
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
   const L = Math.max(1, visual.length_mm * pxPerMm);
   const W = Math.max(1, visual.width_mm * pxPerMm);
-  const rand = seededRandom(seed + visual.shape);
-  const { el: Shape } = shapeElement(visual, L, W, rand);
-
   const c = visual.color;
   const gradId = `bg-${uid}`;
   const clipId = `bc-${uid}`;
-  const component = componentElement(visual, L, W, `url(#${gradId})`);
 
   const gradient =
     visual.finish === "metallic" ? (
@@ -344,6 +341,19 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead" }: BeadP
         <stop offset="100%" stopColor={shade(c, -0.28)} />
       </radialGradient>
     );
+
+  const component = componentElement(visual, L, W, `url(#${gradId})`);
+  if (component) {
+    return (
+      <g>
+        <defs>{gradient}</defs>
+        {component}
+      </g>
+    );
+  }
+
+  const rand = seededRandom(seed + visual.shape);
+  const { el: Shape } = shapeElement(visual, L, W, rand);
 
   const sec = visual.color_secondary;
   const patternMarks: React.ReactNode[] = [];
@@ -427,15 +437,6 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead" }: BeadP
       ))}
     </g>
   );
-
-  if (component) {
-    return (
-      <g>
-        <defs>{gradient}</defs>
-        {component}
-      </g>
-    );
-  }
 
   return (
     <g>

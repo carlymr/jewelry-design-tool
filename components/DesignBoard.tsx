@@ -993,9 +993,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
           >
             <option value="">All types</option>
-            <option value="Beads">Beads</option>
-            <option value="Cabochons">Cabochons</option>
-            <option value="Findings">Findings</option>
+            {[...PLACEABLE_CATEGORIES].map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
           </select>
           <BeadFilters
             familyFilter={familyFilter}
@@ -1030,6 +1032,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                     </span>
                     <span className="block text-xs text-gray-500">
                       {m.quantity} in stock · ${m.unit_cost.toFixed(3)}/ea
+                      {m.visual?.shape === "chain" && (
+                        <span className="text-purple-600"> · adds 1&quot; per click</span>
+                      )}
                     </span>
                   </span>
                   <Plus className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />

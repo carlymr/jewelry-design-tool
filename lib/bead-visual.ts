@@ -121,12 +121,15 @@ function hexToHsl(hex: string): [number, number, number] {
   return [h * 360, s, l];
 }
 
-/** Size buckets for filtering, keyed on the bead's visible width. */
+/** Size buckets for filtering, keyed on the element's visible width. The
+ * split above 8mm keeps focal pieces (cabochons, chain segments) out of the
+ * bucket ordinary large beads live in. */
 export const SIZE_BUCKETS = [
   { key: "xs", label: "< 4mm", min: 0, max: 4 },
   { key: "s", label: "4–6mm", min: 4, max: 6 },
   { key: "m", label: "6–8mm", min: 6, max: 8 },
-  { key: "l", label: "8mm +", min: 8, max: Infinity },
+  { key: "l", label: "8–15mm", min: 8, max: 15 },
+  { key: "xl", label: "15mm +", min: 15, max: Infinity },
 ] as const;
 
 export function sizeBucketOf(visual: BeadVisual | null | undefined): string | null {

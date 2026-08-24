@@ -1,6 +1,6 @@
 # Jewelry Design Tool
 
-A virtual beading board for strung jewelry design, backed by a real materials inventory. Plan a strand bead-by-bead — true to scale, with live length, cost, and stock tracking — using beads imported straight from supplier receipts by Claude.
+A virtual beading board for strung jewelry design, backed by a real materials inventory. Plan a strand element-by-element — beads, chain, clasps, connectors, cabochons — true to scale, with live length, cost, and stock tracking, using materials imported straight from supplier receipts by Claude.
 
 Built with Next.js, Supabase, and the Anthropic API; deploys to Vercel.
 
@@ -10,14 +10,15 @@ Built with Next.js, Supabase, and the Anthropic API; deploys to Vercel.
 
 - **True-to-scale strand layout** with an inch ruler and a target-length marker (bracelet and necklace presets from 6" to 20")
 - **Zoom modes**: fit-to-screen (default), 1:1 real size, or manual zoom
-- **Pattern building**: click beads from the palette to place them, select a run (click / shift-click), then *Repeat ×N* or *Fill to target* to complete the strand; Backspace removes the last-placed bead
-- **Direct manipulation**: drag a bead (or a selected run) to rearrange the strand, click between beads to move the insertion point, and use arrow keys to move it precisely (Shift+arrows to select, Esc to clear)
+- **Pattern building**: click materials from the palette to place them, select a run (click / shift-click), then *Repeat ×N* or *Fill to target* to complete the strand; Backspace removes the last-placed element
+- **Direct manipulation**: drag an element (or a selected run) to rearrange the strand, click between elements to move the insertion point, and use arrow keys to move it precisely (Shift+arrows to select, Esc to clear)
+- **Beyond beads**: chain (placed by the inch), lobster and toggle clasps, jump rings, connectors, and cabochons each render with their own treatment
 - **Live totals**: length vs. target, material cost, and "need X, have Y" warnings when a design overdraws inventory
 - **Saved designs** with name and target length, persisted to Supabase
 
-### Bead visuals
+### Element visuals
 
-Every bead gets a stored visual spec — shape, dimensions along/across the strand, colors, finish, pattern — generated once by Claude and rendered as SVG:
+Every placeable material gets a stored visual spec — shape, dimensions along/across the strand, colors, finish, pattern — generated once by Claude and rendered as SVG (beads as filled gemstone silhouettes, metal components as open link-and-wire shapes):
 
 - Receipt-imported beads get **photo-informed** visuals during extraction (color and finish read from the product images on the receipt)
 - Everything else (CSV imports, hand-entered items, legacy inventory) is backfilled **from the material name** the first time the design board loads
@@ -84,7 +85,7 @@ app/
   api/generate-listing/route.ts# Etsy listing draft from a design's composition
 components/
   DesignBoard.tsx              # strand, ruler, palette, pattern tools, totals
-  BeadSwatch.tsx               # SVG bead renderer (shapes, finishes, patterns)
+  BeadSwatch.tsx               # SVG renderer for beads + strand components
   InventoryTable.tsx           # table, filters, pagination, CSV import/export
   ReceiptImport.tsx            # upload, extraction preview, import to DB
   PricingStudio.tsx            # design costs, extras, labor/markup, listing
