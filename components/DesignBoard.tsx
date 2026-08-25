@@ -30,6 +30,7 @@ import {
   sizeBucketOf,
   type BeadVisual,
 } from "@/lib/bead-visual";
+import { curveGeometry, curvePath } from "@/lib/strand-layout";
 import type { Design, DesignBead, Material } from "@/lib/types";
 
 const MM_PER_INCH = 25.4;
@@ -38,7 +39,24 @@ const ACTUAL_PX_PER_MM = 96 / MM_PER_INCH;
 // Beads without a generated visual still need to advance the strand somehow.
 const FALLBACK_BEAD_MM = 6;
 const MAX_BEADS = 500;
-const LENGTH_PRESETS_IN = [6, 6.5, 7, 7.5, 8, 9, 16, 18, 20];
+// Standard jewelry lengths; anything else via the Custom… option.
+const LENGTH_PRESETS: { in: number; label?: string }[] = [
+  { in: 6 },
+  { in: 6.5 },
+  { in: 7, label: "bracelet" },
+  { in: 7.5 },
+  { in: 8 },
+  { in: 9 },
+  { in: 10, label: "anklet" },
+  { in: 12, label: "collar" },
+  { in: 14, label: "collar" },
+  { in: 16, label: "choker" },
+  { in: 18, label: "princess" },
+  { in: 20, label: "matinee" },
+  { in: 24, label: "matinee" },
+  { in: 30, label: "opera" },
+  { in: 36, label: "rope" },
+];
 const VISUALS_BATCH = 60;
 // Categories whose items can sit on a strand and belong in the palette.
 // Wire/cord/tools stay inventory-only. Anything else with a generated visual
@@ -88,6 +106,12 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const [insertion, setInsertion] = useState(0);
   const [repeatCount, setRepeatCount] = useState(3);
   const [zoomMode, setZoomMode] = useState<"fit" | "custom">("fit");
+  // "line" is the straight editing strand; "curve" shows the piece as worn
+  // (circle for bracelet lengths, hanging drape for necklaces).
+  const [layout, setLayout] = useState<"line" | "curve">("line");
+  // Non-null while the free-form target-length input is open (raw text so
+  // the field can be cleared mid-typing).
+  const [customTarget, setCustomTarget] = useState<string | null>(null);
   const [customPx, setCustomPx] = useState(6);
   const [containerW, setContainerW] = useState(1100);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -128,6 +152,16 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     observer.observe(el);
     setContainerW(el.clientWidth);
     return () => observer.disconnect();
+  }, []);
+
+  // The worn view fits vertically too, budgeted against the viewport (the
+  // container's own height follows its content, so it can't be the budget).
+  const [viewportH, setViewportH] = useState(800);
+  useEffect(() => {
+    const update = () => setViewportH(window.innerHeight);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
   }, []);
 
   // --- restore any unsaved draft (must be declared before the persist
@@ -373,7 +407,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       return;
     }
     setSelection(null);
-    setInsertion(gapIndexFromClientX(e.clientX));
+    setInsertion(gapIndexFromClientX(e.clientX, e.clientY));
   };
 
   // --- drag to rearrange ---
@@ -404,7 +438,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     // A few px of slop so ordinary clicks don't register as drags.
     if (!d.moved && Math.abs(e.clientX - d.startX) < 5) return;
     d.moved = true;
-    setDropIndex(gapIndexFromClientX(e.clientX));
+    setDropIndex(gapIndexFromClientX(e.clientX, e.clientY));
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -416,7 +450,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       setTimeout(() => {
         didDragRef.current = false;
       }, 0);
-      moveDraggedTo(gapIndexFromClientX(e.clientX));
+      moveDraggedTo(gapIndexFromClientX(e.clientX, e.clientY));
     }
     dragRef.current = null;
     setDropIndex(null);
@@ -493,6 +527,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     setCurrentId(design.id);
     setName(design.name);
     setTargetMm(Number(design.target_length_mm));
+    setCustomTarget(null);
     setBeads(design.beads ?? []);
     setDirty(false);
     setSelection(null);
@@ -514,6 +549,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       return;
     setCurrentId(null);
     setName("Untitled design");
+    setCustomTarget(null);
     setBeads([]);
     setDirty(false);
     setSelection(null);
@@ -568,11 +604,84 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const rulerHeight = 34;
   const marginLeft = 24;
   const boardMm = Math.max(targetMm, strand.totalMm) + 30;
-  const fitPx = Math.min(12, Math.max(0.8, (containerW - marginLeft - 24) / boardMm));
+  // "As worn" curve spans the full target (or the strand, if it overran),
+  // so the unfilled remainder is visible as bare string.
+  const curve = curveGeometry(Math.max(targetMm, strand.totalMm));
+  // Padding around the curve for bead widths and hanging pendants.
+  const curvePadMm = maxWidthMm / 2 + pendantDropMm + 4;
+  const fitPx =
+    layout === "curve"
+      ? Math.min(
+          12,
+          Math.max(
+            0.8,
+            Math.min(
+              (containerW - 16) / (curve.widthMm + curvePadMm * 2),
+              // Height budget matches the container's max-h-[75vh].
+              (viewportH * 0.75 - 16) / (curve.heightMm + curvePadMm * 2)
+            )
+          )
+        )
+      : Math.min(12, Math.max(0.8, (containerW - marginLeft - 24) / boardMm));
   const pxPerMm = zoomMode === "fit" ? fitPx : customPx;
   const strandHeight = (maxWidthMm + pendantDropMm) * pxPerMm + 16;
   const boardWidth = marginLeft + boardMm * pxPerMm + 24;
   const centerY = 8 + (maxWidthMm * pxPerMm) / 2;
+  const curveOffPx = curvePadMm * pxPerMm;
+  const curveWidthPx = (curve.widthMm + curvePadMm * 2) * pxPerMm;
+  const curveHeightPx = (curve.heightMm + curvePadMm * 2) * pxPerMm;
+
+  // Necklaces are built center-out and worn symmetric, so the strand is
+  // centered on the worn curve: its midpoint sits at the drape's lowest
+  // point (or the bracelet's bottom), with bare string split evenly across
+  // both ends. Zero when the strand fills or overruns the curve.
+  const wornOffsetMm = layout === "curve" ? (curve.curveMm - strand.totalMm) / 2 : 0;
+
+  /** Position of arc length s on the worn curve, in svg px. */
+  const curvePointPx = (sMm: number) => {
+    const p = curve.pointAt(Math.min(Math.max(sMm, 0), curve.curveMm));
+    return {
+      x: curveOffPx + p.x * pxPerMm,
+      y: curveOffPx + p.y * pxPerMm,
+      tangentDeg: p.tangentDeg,
+      hangDeg: p.hangDeg,
+    };
+  };
+
+  /** Caret/drop/target tick drawn perpendicular to the worn curve. */
+  const curveTick = (
+    sMm: number,
+    stroke: string,
+    strokeWidth: number,
+    extraPx: number,
+    dash?: string
+  ) => {
+    const pt = curvePointPx(sMm);
+    const rad = ((pt.tangentDeg + 90) * Math.PI) / 180;
+    const r = (maxWidthMm / 2) * pxPerMm + extraPx;
+    return (
+      <line
+        x1={pt.x - Math.cos(rad) * r}
+        y1={pt.y - Math.sin(rad) * r}
+        x2={pt.x + Math.cos(rad) * r}
+        y2={pt.y + Math.sin(rad) * r}
+        stroke={stroke}
+        strokeWidth={strokeWidth}
+        strokeDasharray={dash}
+      />
+    );
+  };
+
+  /** Transform putting an element's local frame at its spot on the strand:
+   * origin at the element center, x along the given direction. */
+  const frameAt = (centerS: number, rotation: "tangent" | "hang") => {
+    if (layout === "curve") {
+      const pt = curvePointPx(centerS + wornOffsetMm);
+      const deg = rotation === "tangent" ? pt.tangentDeg : pt.hangDeg - 90;
+      return `translate(${pt.x}, ${pt.y}) rotate(${deg})`;
+    }
+    return `translate(${marginLeft + centerS * pxPerMm}, ${centerY})`;
+  };
 
   const zoomBy = (factor: number) => {
     setZoomMode("custom");
@@ -597,34 +706,33 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // Round away float noise (177.8 / 25.4 = 7.000000000000001) so preset
   // matching and display stay clean.
   const targetIn = Math.round((targetMm / MM_PER_INCH) * 100) / 100;
-  const insertionX =
-    marginLeft +
-    (insertion >= strand.placed.length
-      ? strand.totalMm
-      : strand.placed[insertion]?.xMm ?? 0) *
-      pxPerMm;
+  /** Arc length of the gap before index i (equals total at the strand end). */
+  const sAtGap = (i: number) =>
+    i >= strand.placed.length ? strand.totalMm : strand.placed[i]?.xMm ?? 0;
+
+  const insertionX = marginLeft + sAtGap(insertion) * pxPerMm;
 
   // Nearest gap between beads for a pointer position (used by strand clicks
   // and drag-drop). Declared here because it needs pxPerMm from above.
-  const gapIndexFromClientX = (clientX: number) => {
+  const gapIndexFromClientX = (clientX: number, clientY: number) => {
     const svg = svgRef.current;
     if (!svg) return beads.length;
-    const xMm = (clientX - svg.getBoundingClientRect().left - marginLeft) / pxPerMm;
+    const rect = svg.getBoundingClientRect();
+    const sMm =
+      layout === "curve"
+        ? curve.arcLengthAt(
+            (clientX - rect.left - curveOffPx) / pxPerMm,
+            (clientY - rect.top - curveOffPx) / pxPerMm
+          ) - wornOffsetMm
+        : (clientX - rect.left - marginLeft) / pxPerMm;
     let gap = 0;
     for (const p of strand.placed) {
-      if (xMm > p.xMm + p.lengthMm / 2) gap = p.index + 1;
+      if (sMm > p.xMm + p.lengthMm / 2) gap = p.index + 1;
     }
     return gap;
   };
 
-  const dropX =
-    dropIndex === null
-      ? null
-      : marginLeft +
-        (dropIndex >= strand.placed.length
-          ? strand.totalMm
-          : strand.placed[dropIndex]?.xMm ?? 0) *
-          pxPerMm;
+  const dropX = dropIndex === null ? null : marginLeft + sAtGap(dropIndex) * pxPerMm;
 
   return (
     <div
@@ -658,22 +766,49 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         <label className="text-sm text-gray-600 flex items-center gap-2">
           Target
           <select
-            value={targetIn}
+            value={customTarget !== null ? "custom" : targetIn}
             onChange={(e) => {
+              if (e.target.value === "custom") {
+                setCustomTarget(String(targetIn));
+                return;
+              }
+              setCustomTarget(null);
               setTargetMm(parseFloat(e.target.value) * MM_PER_INCH);
               setDirty(true);
             }}
             className="px-2 py-2 border border-gray-300 rounded-md text-sm bg-white"
           >
-            {LENGTH_PRESETS_IN.map((len) => (
-              <option key={len} value={len}>
-                {len}&quot;
+            {LENGTH_PRESETS.map((p) => (
+              <option key={p.in} value={p.in}>
+                {p.in}&quot;{p.label ? ` · ${p.label}` : ""}
               </option>
             ))}
-            {!LENGTH_PRESETS_IN.includes(targetIn) && (
-              <option value={targetIn}>{targetIn.toFixed(2)}&quot;</option>
-            )}
+            {customTarget === null &&
+              !LENGTH_PRESETS.some((p) => p.in === targetIn) && (
+                <option value={targetIn}>{targetIn.toFixed(2)}&quot;</option>
+              )}
+            <option value="custom">Custom…</option>
           </select>
+          {customTarget !== null && (
+            <input
+              type="number"
+              min={1}
+              max={100}
+              step={0.5}
+              value={customTarget}
+              onChange={(e) => {
+                setCustomTarget(e.target.value);
+                const v = parseFloat(e.target.value);
+                if (v > 0 && v <= 100) {
+                  setTargetMm(v * MM_PER_INCH);
+                  setDirty(true);
+                }
+              }}
+              className="w-20 px-2 py-2 border border-gray-300 rounded-md text-sm"
+              aria-label="Custom target length in inches"
+              autoFocus
+            />
+          )}
         </label>
         <div className="flex items-center gap-1 bg-white border border-gray-300 rounded-md p-0.5">
           <button
@@ -716,6 +851,30 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             <ZoomIn className="w-4 h-4" />
           </button>
         </div>
+        <div className="flex items-center gap-1 bg-white border border-gray-300 rounded-md p-0.5">
+          <button
+            onClick={() => setLayout("line")}
+            className={`px-2 py-1.5 text-xs rounded ${
+              layout === "line"
+                ? "bg-purple-100 text-purple-700 font-medium"
+                : "text-gray-500 hover:text-gray-900"
+            }`}
+            title="Straight editing strand with ruler"
+          >
+            Line
+          </button>
+          <button
+            onClick={() => setLayout("curve")}
+            className={`px-2 py-1.5 text-xs rounded ${
+              layout === "curve"
+                ? "bg-purple-100 text-purple-700 font-medium"
+                : "text-gray-500 hover:text-gray-900"
+            }`}
+            title="How the piece lies when worn — a circle for bracelet lengths, a hanging drape for necklaces"
+          >
+            As worn
+          </button>
+        </div>
         <button
           onClick={saveDesign}
           disabled={saving || !dirty}
@@ -743,44 +902,70 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
 
       {/* Strand board */}
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-        <div className="overflow-x-auto" tabIndex={0} ref={boardRef}>
+        {layout === "curve" && (
+          <p className="mb-2 text-xs text-gray-500">
+            {curve.kind === "circle"
+              ? "Bracelet (as worn) — closes into a circle; targets of 12″ and up hang as a necklace"
+              : "Necklace (as worn) — hangs as it would when worn"}
+          </p>
+        )}
+        <div
+          className={layout === "curve" ? "overflow-auto max-h-[75vh]" : "overflow-x-auto"}
+          tabIndex={0}
+          ref={boardRef}
+        >
           <svg
             ref={svgRef}
-            width={boardWidth}
-            height={strandHeight + rulerHeight}
+            width={layout === "curve" ? curveWidthPx : boardWidth}
+            height={layout === "curve" ? curveHeightPx : strandHeight + rulerHeight}
             onClick={handleBoardClick}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={cancelDrag}
             className="block cursor-default touch-none"
           >
-            {/* string */}
-            <line
-              x1={marginLeft - 12}
-              y1={centerY}
-              x2={marginLeft + strand.totalMm * pxPerMm + 12}
-              y2={centerY}
-              stroke="#a8a29e"
-              strokeWidth={1.5}
-            />
+            {/* string: straight, or the full worn curve so the unfilled
+                remainder shows as bare string */}
+            {layout === "curve" ? (
+              <path
+                transform={`translate(${curveOffPx}, ${curveOffPx}) scale(${pxPerMm})`}
+                d={curvePath(curve)}
+                fill="none"
+                stroke="#a8a29e"
+                strokeWidth={1.5 / pxPerMm}
+              />
+            ) : (
+              <line
+                x1={marginLeft - 12}
+                y1={centerY}
+                x2={marginLeft + strand.totalMm * pxPerMm + 12}
+                y2={centerY}
+                stroke="#a8a29e"
+                strokeWidth={1.5}
+              />
+            )}
 
-            {/* beads */}
+            {/* beads — the outer frame puts the element's center at its spot
+                on the strand with local x along the direction of travel, so
+                the same drawing works straight or curved */}
             {strand.placed.map((p) => {
               const visual = p.material?.visual ?? null;
               const widthMm = beadWidthMm(p.material);
               const selected = range && p.index >= range.start && p.index <= range.end;
+              const centerS = p.xMm + p.lengthMm / 2;
+              const lengthPx = p.lengthMm * pxPerMm;
+              const widthPx = widthMm * pxPerMm;
               if (visual?.shape === "cabochon") {
-                // Pendant: a bail ring on the string with the stone hanging
-                // below it, long axis vertical.
+                // Pendant local frame: bail at the origin, stone hanging
+                // toward +y. On the worn curve, +y is rotated to gravity
+                // (drape) or radially outward (bracelet).
                 const stoneW = visual.width_mm * pxPerMm;
                 const stoneL = visual.length_mm * pxPerMm;
-                const advancePx = p.lengthMm * pxPerMm;
                 const bailR = (CABOCHON_BAIL_MM / 2) * pxPerMm;
-                const stoneTop = centerY + bailR * 1.6;
                 return (
                   <g
                     key={p.index}
-                    transform={`translate(${marginLeft + p.xMm * pxPerMm}, 0)`}
+                    transform={frameAt(centerS, "hang")}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleBeadClick(p.index, e.shiftKey);
@@ -790,8 +975,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                   >
                     {selected && (
                       <rect
-                        x={advancePx / 2 - stoneW / 2 - 1.5}
-                        y={centerY - bailR - 3}
+                        x={-stoneW / 2 - 1.5}
+                        y={-bailR - 3}
                         width={stoneW + 3}
                         height={bailR * 2.6 + stoneL + 6}
                         rx={4}
@@ -800,16 +985,14 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                       />
                     )}
                     <circle
-                      cx={advancePx / 2}
-                      cy={centerY + bailR * 0.6}
+                      cx={0}
+                      cy={bailR * 0.6}
                       r={bailR}
                       fill="none"
                       stroke="#9ca3af"
                       strokeWidth={Math.max(1, bailR * 0.35)}
                     />
-                    <g
-                      transform={`translate(${advancePx / 2 + stoneW / 2}, ${stoneTop}) rotate(90)`}
-                    >
+                    <g transform={`translate(${stoneW / 2}, ${bailR * 1.6}) rotate(90)`}>
                       <Bead
                         visual={visual}
                         pxPerMm={pxPerMm}
@@ -822,7 +1005,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               return (
                 <g
                   key={p.index}
-                  transform={`translate(${marginLeft + p.xMm * pxPerMm}, ${centerY - (widthMm * pxPerMm) / 2})`}
+                  transform={frameAt(centerS, "tangent")}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleBeadClick(p.index, e.shiftKey);
@@ -830,63 +1013,94 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                   onPointerDown={(e) => handleBeadPointerDown(p.index, e)}
                   className="cursor-grab active:cursor-grabbing"
                 >
-                  {selected && (
-                    <rect
-                      x={-1.5}
-                      y={-3}
-                      width={p.lengthMm * pxPerMm + 3}
-                      height={widthMm * pxPerMm + 6}
-                      rx={4}
-                      fill="#a855f7"
-                      opacity={0.25}
-                    />
-                  )}
-                  {visual ? (
-                    <Bead
-                      visual={visual}
-                      pxPerMm={pxPerMm}
-                      seed={p.material?.id ?? "missing"}
-                    />
-                  ) : (
-                    <g>
-                      <ellipse
-                        cx={(p.lengthMm * pxPerMm) / 2}
-                        cy={(widthMm * pxPerMm) / 2}
-                        rx={(p.lengthMm * pxPerMm) / 2}
-                        ry={(widthMm * pxPerMm) / 2}
-                        fill="#e5e7eb"
-                        stroke="#9ca3af"
-                        strokeDasharray="3 2"
+                  <g transform={`translate(${-lengthPx / 2}, ${-widthPx / 2})`}>
+                    {selected && (
+                      <rect
+                        x={-1.5}
+                        y={-3}
+                        width={lengthPx + 3}
+                        height={widthPx + 6}
+                        rx={4}
+                        fill="#a855f7"
+                        opacity={0.25}
                       />
-                    </g>
-                  )}
+                    )}
+                    {visual ? (
+                      <Bead
+                        visual={visual}
+                        pxPerMm={pxPerMm}
+                        seed={p.material?.id ?? "missing"}
+                      />
+                    ) : (
+                      <g>
+                        <ellipse
+                          cx={lengthPx / 2}
+                          cy={widthPx / 2}
+                          rx={lengthPx / 2}
+                          ry={widthPx / 2}
+                          fill="#e5e7eb"
+                          stroke="#9ca3af"
+                          strokeDasharray="3 2"
+                        />
+                      </g>
+                    )}
+                  </g>
                 </g>
               );
             })}
 
-            {/* insertion caret */}
-            <line
-              x1={insertionX}
-              y1={centerY - (maxWidthMm * pxPerMm) / 2 - 4}
-              x2={insertionX}
-              y2={centerY + (maxWidthMm * pxPerMm) / 2 + 4}
-              stroke="#a855f7"
-              strokeWidth={2}
-            />
+            {/* symmetric target markers when the centered strand overruns
+                it (line mode has the ruler's dashed marker instead) */}
+            {layout === "curve" && strand.totalMm > targetMm && (
+              <>
+                {curveTick(
+                  wornOffsetMm + (strand.totalMm - targetMm) / 2,
+                  "#dc2626",
+                  1.5,
+                  6,
+                  "4 3"
+                )}
+                {curveTick(
+                  wornOffsetMm + strand.totalMm - (strand.totalMm - targetMm) / 2,
+                  "#dc2626",
+                  1.5,
+                  6,
+                  "4 3"
+                )}
+              </>
+            )}
 
-            {/* drop indicator while dragging */}
-            {dropX !== null && (
+            {/* insertion caret */}
+            {layout === "curve" ? (
+              curveTick(sAtGap(insertion) + wornOffsetMm, "#a855f7", 2, 4)
+            ) : (
               <line
-                x1={dropX}
-                y1={centerY - (maxWidthMm * pxPerMm) / 2 - 6}
-                x2={dropX}
-                y2={centerY + (maxWidthMm * pxPerMm) / 2 + 6}
-                stroke="#16a34a"
-                strokeWidth={2.5}
+                x1={insertionX}
+                y1={centerY - (maxWidthMm * pxPerMm) / 2 - 4}
+                x2={insertionX}
+                y2={centerY + (maxWidthMm * pxPerMm) / 2 + 4}
+                stroke="#a855f7"
+                strokeWidth={2}
               />
             )}
 
-            {/* ruler */}
+            {/* drop indicator while dragging */}
+            {dropIndex !== null &&
+              (layout === "curve" ? (
+                curveTick(sAtGap(dropIndex) + wornOffsetMm, "#16a34a", 2.5, 6)
+              ) : (
+                <line
+                  x1={dropX ?? 0}
+                  y1={centerY - (maxWidthMm * pxPerMm) / 2 - 6}
+                  x2={dropX ?? 0}
+                  y2={centerY + (maxWidthMm * pxPerMm) / 2 + 6}
+                  stroke="#16a34a"
+                  strokeWidth={2.5}
+                />
+              ))}
+
+            {/* ruler (straight view only) */}
+            {layout === "line" && (
             <g transform={`translate(0, ${strandHeight})`}>
               <line
                 x1={marginLeft}
@@ -940,6 +1154,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 </text>
               </g>
             </g>
+            )}
           </svg>
         </div>
 

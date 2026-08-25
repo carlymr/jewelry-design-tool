@@ -10,6 +10,7 @@ Built with Next.js, Supabase, and the Anthropic API; deploys to Vercel.
 
 - **True-to-scale strand layout** with an inch ruler and a target-length marker (bracelet and necklace presets from 6" to 20")
 - **Zoom modes**: fit-to-screen (default), 1:1 real size, or manual zoom
+- **As-worn view**: toggle between the straight editing strand and how the piece actually lies — a closed circle for bracelet lengths, a hanging drape for necklaces — with pendants hanging true and selection/drag still live
 - **Pattern building**: click materials from the palette to place them, select a run (click / shift-click), then *Repeat ×N* or *Fill to target* to complete the strand; Backspace removes the last-placed element
 - **Direct manipulation**: drag an element (or a selected run) to rearrange the strand, click between elements to move the insertion point, and use arrow keys to move it precisely (Shift+arrows to select, Esc to clear)
 - **Beyond beads**: chain (placed by the inch), lobster and toggle clasps, jump rings, connectors, and cabochons each render with their own treatment
@@ -104,6 +105,7 @@ components/
   PricingStudio.tsx            # design costs, extras, labor/markup, listing
 lib/
   bead-visual.ts               # visual spec schema + color/size helpers
+  strand-layout.ts             # as-worn geometry (bracelet circle / necklace drape)
   photo-upload.ts              # shared downscale + transient-upload helpers
   designs.ts / materials.ts    # Supabase CRUD
 supabase/migrations/           # schema (materials, receipts bucket, designs)
