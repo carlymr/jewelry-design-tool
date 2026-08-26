@@ -29,7 +29,8 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 ### Inventory
 
 - Searchable, sortable, paginated table with bead swatches, inline stock editing, and **color family / size filters**
-- **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries, estimating bead counts from strand lengths, and resolving pick-your-stone cabochon selections (the variation code/dimensions, not the generic listing title) — into an editable preview before importing
+- **Full row editing**: fix a material's name, category, cost, or unit after import (sellers mislabel stones); renaming offers to regenerate the visual from the corrected name
+- **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries, estimating bead counts from strand lengths — into an editable preview before importing
 - **CSV import/export** compatible with the original artifact tool (`Name, Category, Cost Per Unit, Unit, In Stock`)
 
 ### Pricing & listing
@@ -105,6 +106,7 @@ components/
   PricingStudio.tsx            # design costs, extras, labor/markup, listing
 lib/
   bead-visual.ts               # visual spec schema + color/size helpers
+  visuals.ts                   # shared name→visual API call (board + inventory)
   strand-layout.ts             # as-worn geometry (bracelet circle / necklace drape)
   photo-upload.ts              # shared downscale + transient-upload helpers
   designs.ts / materials.ts    # Supabase CRUD

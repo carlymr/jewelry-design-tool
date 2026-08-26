@@ -10,11 +10,15 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
+import { generateVisualForName } from "@/lib/visuals";
 import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
 import { CATEGORIES, type Material, type NewMaterial } from "@/lib/types";
 
@@ -31,6 +35,16 @@ const EMPTY_FORM: NewMaterial = {
   supplier: "",
 };
 
+// Numeric fields stay raw text while editing — binding a parsed number back to
+// the input eats in-progress entries like "0." before the decimals are typed.
+interface EditDraft {
+  name: string;
+  category: string;
+  unit_cost: string;
+  unit_type: string;
+  quantity: string;
+}
+
 interface Props {
   materials: Material[];
   loading: boolean;
@@ -46,6 +60,9 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
   const [page, setPage] = useState(0);
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState<NewMaterial>(EMPTY_FORM);
+  const [edit, setEdit] = useState<{ material: Material; form: EditDraft } | null>(null);
+  const [regenVisual, setRegenVisual] = useState(false);
+  const regenTouched = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -123,6 +140,69 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
     if (!confirm(`Delete "${material.name}" from inventory?`)) return;
     run(() => deleteMaterial(material.id));
   };
+
+  const startEdit = (material: Material) => {
+    setEdit({
+      material,
+      form: {
+        name: material.name,
+        category: material.category,
+        unit_cost: String(material.unit_cost),
+        unit_type: material.unit_type,
+        quantity: String(material.quantity),
+      },
+    });
+    setRegenVisual(false);
+    regenTouched.current = false;
+    setError("");
+  };
+
+  const setDraft = (patch: Partial<EditDraft>) =>
+    setEdit((e) => (e ? { ...e, form: { ...e.form, ...patch } } : e));
+
+  // A rename usually means the visual (derived from the name) is wrong too, so
+  // renaming auto-checks the regenerate box — until the user toggles it herself.
+  const handleEditName = (value: string) => {
+    setDraft({ name: value });
+    if (edit && !regenTouched.current) {
+      setRegenVisual(value.trim() !== edit.material.name);
+    }
+  };
+
+  const handleSaveEdit = () =>
+    run(async () => {
+      if (!edit) return;
+      const name = edit.form.name.trim();
+      if (!name) throw new Error("Material name is required");
+      const unit_cost = parseFloat(edit.form.unit_cost);
+      if (Number.isNaN(unit_cost) || unit_cost < 0) {
+        throw new Error("Cost must be a non-negative number");
+      }
+      const quantity = parseFloat(edit.form.quantity);
+      if (Number.isNaN(quantity) || quantity < 0) {
+        throw new Error("Stock must be a non-negative number");
+      }
+      await updateMaterial(edit.material.id, {
+        name,
+        category: edit.form.category,
+        unit_cost,
+        unit_type: edit.form.unit_type.trim() || "piece",
+        quantity,
+      });
+      let regenError: string | null = null;
+      if (regenVisual) {
+        try {
+          const visual = await generateVisualForName(edit.material.id, name);
+          if (visual) await updateMaterial(edit.material.id, { visual });
+        } catch (e) {
+          regenError = e instanceof Error ? e.message : "unknown error";
+        }
+      }
+      setEdit(null);
+      if (regenError) {
+        throw new Error(`Changes saved, but the visual refresh failed: ${regenError}`);
+      }
+    });
 
   // Leading =, +, -, @ would execute as formulas if the export is opened in
   // Excel/Sheets; prefix with ' to neutralize (standard CSV-injection guard).
@@ -356,56 +436,188 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
       </div>
 
       <div className="bg-white border border-t-0 rounded-b-lg">
-        {paged.map((material) => (
-          <div
-            key={material.id}
-            className="grid grid-cols-12 gap-3 p-3 border-b border-gray-100 hover:bg-gray-50 last:border-b-0 items-center"
-          >
-            <div className="col-span-4 text-sm text-gray-900 flex items-center gap-2 min-w-0">
-              <span className="w-6 flex justify-center shrink-0">
-                {material.visual && (
-                  <BeadSwatch visual={material.visual} size={22} seed={material.id} />
-                )}
-              </span>
-              <span className="min-w-0 wrap-break-word leading-snug">{material.name}</span>
-            </div>
-            <div className="col-span-2 text-sm text-gray-600">{material.category}</div>
-            <div className="col-span-2 text-sm text-gray-900">
-              ${material.unit_cost.toFixed(2)}
-            </div>
-            <div className="col-span-1 text-sm text-gray-600">{material.unit_type}</div>
-            <div className="col-span-2">
-              <input
-                type="number"
-                min="0"
-                defaultValue={material.quantity}
-                onBlur={(e) => {
-                  if (parseFloat(e.target.value) !== material.quantity) {
-                    handleStockChange(material.id, e.target.value);
-                  }
-                }}
-                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500"
-              />
-            </div>
-            <div className="col-span-1 flex justify-center items-center gap-1">
-              <PhotoVisualButton
-                material={material}
-                onUpdated={onChanged}
-                onError={setError}
-                className="text-gray-300 hover:text-purple-600 p-1 rounded"
-              />
-              <span aria-hidden className="w-px h-4 bg-gray-200" />
-              <button
-                onClick={() => handleDelete(material)}
-                disabled={busy}
-                className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded"
-                title="Delete material"
+        {paged.map((material) =>
+          edit?.material.id === material.id ? (
+            <div
+              key={material.id}
+              className="p-3 border-b border-purple-200 bg-purple-50/50 last:border-b-0"
+              onKeyDown={(e) => {
+                if (busy) return;
+                if (e.key === "Enter" && !(e.target instanceof HTMLSelectElement)) {
+                  handleSaveEdit();
+                } else if (e.key === "Escape") {
+                  setEdit(null);
+                }
+              }}
+            >
+              <div className="grid grid-cols-12 gap-3 items-center">
+                <div className="col-span-4 flex items-center gap-2 min-w-0">
+                  <span className="w-6 flex justify-center shrink-0">
+                    {material.visual && (
+                      <BeadSwatch visual={material.visual} size={22} seed={material.id} />
+                    )}
+                  </span>
+                  <input
+                    type="text"
+                    value={edit.form.name}
+                    onChange={(e) => handleEditName(e.target.value)}
+                    disabled={busy}
+                    aria-label="Material name"
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500 disabled:bg-gray-100"
+                    autoFocus
+                  />
+                </div>
+                <div className="col-span-2">
+                  <select
+                    value={edit.form.category}
+                    onChange={(e) => setDraft({ category: e.target.value })}
+                    disabled={busy}
+                    aria-label="Category"
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded disabled:bg-gray-100"
+                  >
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={edit.form.unit_cost}
+                    onChange={(e) => setDraft({ unit_cost: e.target.value })}
+                    disabled={busy}
+                    aria-label="Cost per unit"
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded disabled:bg-gray-100"
+                  />
+                </div>
+                <div className="col-span-1">
+                  <input
+                    type="text"
+                    value={edit.form.unit_type}
+                    onChange={(e) => setDraft({ unit_type: e.target.value })}
+                    disabled={busy}
+                    aria-label="Unit"
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded disabled:bg-gray-100"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <input
+                    type="number"
+                    min="0"
+                    value={edit.form.quantity}
+                    onChange={(e) => setDraft({ quantity: e.target.value })}
+                    disabled={busy}
+                    aria-label="In stock"
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded disabled:bg-gray-100"
+                  />
+                </div>
+                <div className="col-span-1 flex justify-center items-center gap-1">
+                  <button
+                    onClick={handleSaveEdit}
+                    disabled={busy}
+                    className="text-green-600 hover:text-green-700 hover:bg-green-50 p-1 rounded disabled:opacity-40"
+                    title="Save changes"
+                    aria-label="Save changes"
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setEdit(null)}
+                    disabled={busy}
+                    className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 p-1 rounded disabled:opacity-40"
+                    title="Cancel"
+                    aria-label="Cancel edit"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <label
+                className="mt-2 ml-8 inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer"
+                title="Regenerates the swatch artwork from the corrected name"
               >
-                <Trash2 className="w-4 h-4" />
-              </button>
+                <input
+                  type="checkbox"
+                  checked={regenVisual}
+                  disabled={busy}
+                  onChange={(e) => {
+                    regenTouched.current = true;
+                    setRegenVisual(e.target.checked);
+                  }}
+                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                />
+                Refresh visual from name
+                {busy && <span className="text-purple-600 font-medium">— Saving…</span>}
+              </label>
             </div>
-          </div>
-        ))}
+          ) : (
+            <div
+              key={material.id}
+              className="grid grid-cols-12 gap-3 p-3 border-b border-gray-100 hover:bg-gray-50 last:border-b-0 items-center"
+            >
+              <div className="col-span-4 text-sm text-gray-900 flex items-center gap-2 min-w-0">
+                <span className="w-6 flex justify-center shrink-0">
+                  {material.visual && (
+                    <BeadSwatch visual={material.visual} size={22} seed={material.id} />
+                  )}
+                </span>
+                <span className="min-w-0 wrap-break-word leading-snug">{material.name}</span>
+              </div>
+              <div className="col-span-2 text-sm text-gray-600">{material.category}</div>
+              <div className="col-span-2 text-sm text-gray-900">
+                ${material.unit_cost.toFixed(2)}
+              </div>
+              <div className="col-span-1 text-sm text-gray-600">{material.unit_type}</div>
+              <div className="col-span-2">
+                <input
+                  // Remount when quantity changes elsewhere (row editing) — an
+                  // uncontrolled input would otherwise show, and write back, a
+                  // stale defaultValue on the next blur.
+                  key={material.quantity}
+                  type="number"
+                  min="0"
+                  defaultValue={material.quantity}
+                  onBlur={(e) => {
+                    if (parseFloat(e.target.value) !== material.quantity) {
+                      handleStockChange(material.id, e.target.value);
+                    }
+                  }}
+                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500"
+                />
+              </div>
+              <div className="col-span-1 flex justify-center items-center gap-1">
+                <button
+                  onClick={() => startEdit(material)}
+                  disabled={busy || edit !== null}
+                  className="text-gray-300 hover:text-purple-600 p-1 rounded disabled:opacity-40 disabled:hover:text-gray-300"
+                  title="Edit material"
+                  aria-label="Edit material"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <PhotoVisualButton
+                  material={material}
+                  onUpdated={onChanged}
+                  onError={setError}
+                  className="text-gray-300 hover:text-purple-600 p-1 rounded"
+                />
+                <span aria-hidden className="w-px h-4 bg-gray-200" />
+                <button
+                  onClick={() => handleDelete(material)}
+                  disabled={busy}
+                  className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded"
+                  title="Delete material"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )
+        )}
 
         {!loading && sorted.length === 0 && (
           <div className="text-center py-8 text-gray-500">

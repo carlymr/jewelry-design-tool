@@ -19,6 +19,7 @@ import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { updateMaterial } from "@/lib/materials";
+import { generateVisualForName } from "@/lib/visuals";
 import {
   createDesign,
   deleteDesign,
@@ -252,16 +253,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     setRegeneratingId(material.id);
     setError("");
     try {
-      const res = await fetch("/api/generate-visuals", {
-        method: "POST",
-        headers: await apiHeaders(),
-        body: JSON.stringify({
-          materials: [{ id: material.id, name: material.name }],
-        }),
-      });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || `Request failed (${res.status})`);
-      const visual = result.visuals?.[0]?.visual;
+      const visual = await generateVisualForName(material.id, material.name);
       if (visual) {
         await updateMaterial(material.id, { visual });
         await onMaterialsChanged();
