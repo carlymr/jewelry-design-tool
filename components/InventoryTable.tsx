@@ -10,11 +10,15 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
+import { generateVisualForName } from "@/lib/visuals";
 import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
 import { CATEGORIES, type Material, type NewMaterial } from "@/lib/types";
 
@@ -31,6 +35,15 @@ const EMPTY_FORM: NewMaterial = {
   supplier: "",
 };
 
+interface EditForm {
+  name: string;
+  category: string;
+  unit_cost: number;
+  unit_type: string;
+}
+
+const EMPTY_EDIT: EditForm = { name: "", category: "Beads", unit_cost: 0, unit_type: "piece" };
+
 interface Props {
   materials: Material[];
   loading: boolean;
@@ -46,6 +59,10 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
   const [page, setPage] = useState(0);
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState<NewMaterial>(EMPTY_FORM);
+  const [editing, setEditing] = useState<Material | null>(null);
+  const [editForm, setEditForm] = useState<EditForm>(EMPTY_EDIT);
+  const [regenVisual, setRegenVisual] = useState(false);
+  const regenTouched = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -123,6 +140,54 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
     if (!confirm(`Delete "${material.name}" from inventory?`)) return;
     run(() => deleteMaterial(material.id));
   };
+
+  const startEdit = (material: Material) => {
+    setEditing(material);
+    setEditForm({
+      name: material.name,
+      category: material.category,
+      unit_cost: material.unit_cost,
+      unit_type: material.unit_type,
+    });
+    setRegenVisual(false);
+    regenTouched.current = false;
+    setError("");
+  };
+
+  // A rename usually means the visual (derived from the name) is wrong too, so
+  // renaming auto-checks the regenerate box — until the user toggles it herself.
+  const handleEditName = (value: string) => {
+    setEditForm((f) => ({ ...f, name: value }));
+    if (editing && !regenTouched.current) {
+      setRegenVisual(value.trim() !== editing.name);
+    }
+  };
+
+  const handleSaveEdit = () =>
+    run(async () => {
+      if (!editing) return;
+      const name = editForm.name.trim();
+      if (!name) throw new Error("Material name is required");
+      await updateMaterial(editing.id, {
+        name,
+        category: editForm.category,
+        unit_cost: editForm.unit_cost,
+        unit_type: editForm.unit_type.trim() || "piece",
+      });
+      let regenError: string | null = null;
+      if (regenVisual) {
+        try {
+          const visual = await generateVisualForName(editing.id, name);
+          if (visual) await updateMaterial(editing.id, { visual });
+        } catch (e) {
+          regenError = e instanceof Error ? e.message : "unknown error";
+        }
+      }
+      setEditing(null);
+      if (regenError) {
+        throw new Error(`Changes saved, but the visual refresh failed: ${regenError}`);
+      }
+    });
 
   // Leading =, +, -, @ would execute as formulas if the export is opened in
   // Excel/Sheets; prefix with ' to neutralize (standard CSV-injection guard).
@@ -356,56 +421,160 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
       </div>
 
       <div className="bg-white border border-t-0 rounded-b-lg">
-        {paged.map((material) => (
-          <div
-            key={material.id}
-            className="grid grid-cols-12 gap-3 p-3 border-b border-gray-100 hover:bg-gray-50 last:border-b-0 items-center"
-          >
-            <div className="col-span-4 text-sm text-gray-900 flex items-center gap-2 min-w-0">
-              <span className="w-6 flex justify-center shrink-0">
-                {material.visual && (
-                  <BeadSwatch visual={material.visual} size={22} seed={material.id} />
-                )}
-              </span>
-              <span className="min-w-0 wrap-break-word leading-snug">{material.name}</span>
-            </div>
-            <div className="col-span-2 text-sm text-gray-600">{material.category}</div>
-            <div className="col-span-2 text-sm text-gray-900">
-              ${material.unit_cost.toFixed(2)}
-            </div>
-            <div className="col-span-1 text-sm text-gray-600">{material.unit_type}</div>
-            <div className="col-span-2">
-              <input
-                type="number"
-                min="0"
-                defaultValue={material.quantity}
-                onBlur={(e) => {
-                  if (parseFloat(e.target.value) !== material.quantity) {
-                    handleStockChange(material.id, e.target.value);
+        {paged.map((material) =>
+          editing?.id === material.id ? (
+            <div
+              key={material.id}
+              className="grid grid-cols-12 gap-3 p-3 border-b border-purple-200 bg-purple-50/50 last:border-b-0 items-center"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !(e.target instanceof HTMLSelectElement)) {
+                  handleSaveEdit();
+                } else if (e.key === "Escape") {
+                  setEditing(null);
+                }
+              }}
+            >
+              <div className="col-span-4 flex items-center gap-2 min-w-0">
+                <span className="w-6 flex justify-center shrink-0">
+                  {material.visual && (
+                    <BeadSwatch visual={material.visual} size={22} seed={material.id} />
+                  )}
+                </span>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => handleEditName(e.target.value)}
+                  aria-label="Material name"
+                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500"
+                  autoFocus
+                />
+              </div>
+              <div className="col-span-2">
+                <select
+                  value={editForm.category}
+                  onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+                  aria-label="Category"
+                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                >
+                  {CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editForm.unit_cost}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, unit_cost: parseFloat(e.target.value) || 0 })
                   }
-                }}
-                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500"
-              />
+                  aria-label="Cost per unit"
+                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                />
+              </div>
+              <div className="col-span-1">
+                <input
+                  type="text"
+                  value={editForm.unit_type}
+                  onChange={(e) => setEditForm({ ...editForm, unit_type: e.target.value })}
+                  aria-label="Unit"
+                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                />
+              </div>
+              <label className="col-span-2 flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={regenVisual}
+                  onChange={(e) => {
+                    regenTouched.current = true;
+                    setRegenVisual(e.target.checked);
+                  }}
+                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                />
+                Refresh visual from name
+              </label>
+              <div className="col-span-1 flex justify-center items-center gap-1">
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={busy}
+                  className="text-green-600 hover:text-green-700 hover:bg-green-50 p-1 rounded disabled:opacity-40"
+                  title="Save changes"
+                >
+                  <Check className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setEditing(null)}
+                  disabled={busy}
+                  className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 p-1 rounded"
+                  title="Cancel"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-            <div className="col-span-1 flex justify-center items-center gap-1">
-              <PhotoVisualButton
-                material={material}
-                onUpdated={onChanged}
-                onError={setError}
-                className="text-gray-300 hover:text-purple-600 p-1 rounded"
-              />
-              <span aria-hidden className="w-px h-4 bg-gray-200" />
-              <button
-                onClick={() => handleDelete(material)}
-                disabled={busy}
-                className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded"
-                title="Delete material"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+          ) : (
+            <div
+              key={material.id}
+              className="grid grid-cols-12 gap-3 p-3 border-b border-gray-100 hover:bg-gray-50 last:border-b-0 items-center"
+            >
+              <div className="col-span-4 text-sm text-gray-900 flex items-center gap-2 min-w-0">
+                <span className="w-6 flex justify-center shrink-0">
+                  {material.visual && (
+                    <BeadSwatch visual={material.visual} size={22} seed={material.id} />
+                  )}
+                </span>
+                <span className="min-w-0 wrap-break-word leading-snug">{material.name}</span>
+              </div>
+              <div className="col-span-2 text-sm text-gray-600">{material.category}</div>
+              <div className="col-span-2 text-sm text-gray-900">
+                ${material.unit_cost.toFixed(2)}
+              </div>
+              <div className="col-span-1 text-sm text-gray-600">{material.unit_type}</div>
+              <div className="col-span-2">
+                <input
+                  type="number"
+                  min="0"
+                  defaultValue={material.quantity}
+                  onBlur={(e) => {
+                    if (parseFloat(e.target.value) !== material.quantity) {
+                      handleStockChange(material.id, e.target.value);
+                    }
+                  }}
+                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500"
+                />
+              </div>
+              <div className="col-span-1 flex justify-center items-center gap-1">
+                <button
+                  onClick={() => startEdit(material)}
+                  disabled={busy}
+                  className="text-gray-300 hover:text-purple-600 p-1 rounded"
+                  title="Edit material"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <PhotoVisualButton
+                  material={material}
+                  onUpdated={onChanged}
+                  onError={setError}
+                  className="text-gray-300 hover:text-purple-600 p-1 rounded"
+                />
+                <span aria-hidden className="w-px h-4 bg-gray-200" />
+                <button
+                  onClick={() => handleDelete(material)}
+                  disabled={busy}
+                  className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded"
+                  title="Delete material"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        )}
 
         {!loading && sorted.length === 0 && (
           <div className="text-center py-8 text-gray-500">
