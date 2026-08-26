@@ -110,7 +110,7 @@ ESTIMATING UNITS:
 - For bead strands, estimate bead count from strand length and bead size (a 15" strand of 8mm beads is about 48 beads; a 16" strand of 6mm beads is about 67 beads).
 - For wire or cord spools, estimate total length in inches.
 
-Ignore non-material lines like shipping, taxes, and store credit. Only include materials that would be used to make jewelry. If the document doesn't appear to be a receipt or contains no jewelry materials, return an empty items array and explain in notes.`;
+Ignore lines with no physical goods — shipping, taxes, store credit, coupons. Do NOT drop tools or finished-jewelry lines; categorize those per NON-SUPPLY LINES above. If the document doesn't appear to be a receipt or contains no jewelry materials, return an empty items array and explain in notes.`;
 
 export async function POST(request: NextRequest) {
   if (!(await isAuthorized(request))) {
