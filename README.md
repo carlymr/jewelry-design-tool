@@ -29,7 +29,7 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 ### Inventory
 
 - Searchable, sortable, paginated table with bead swatches, inline stock editing, and **color family / size filters**
-- **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries, estimating bead counts from strand lengths — into an editable preview before importing
+- **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries, estimating bead counts from strand lengths, and resolving pick-your-stone cabochon selections (the variation code/dimensions, not the generic listing title) — into an editable preview before importing
 - **CSV import/export** compatible with the original artifact tool (`Name, Category, Cost Per Unit, Unit, In Stock`)
 
 ### Pricing & listing

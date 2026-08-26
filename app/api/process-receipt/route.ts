@@ -83,6 +83,19 @@ SPLITTING ASSORTMENTS — this is important:
 - Divide the total quantity evenly across variants unless the listing states a per-variant count (1200 beads across 6 variants = 200 each).
 - Allocate the line item's price across variants in proportion to their unit counts, and compute unit_cost per variant.
 
+PICK-YOUR-STONE CABOCHONS — one-of-a-kind stones sold through generic listings:
+- Stone shops sell individual cabochons through listings where the buyer picks a specific stone from a photo; the title is then generic (often plural, "Mix Shapes", or keyword-stuffed) and the actual stone is identified only by the variation/personalization line. Selection formats seen in the wild: "IR3896 30X24X5MM43CT" (lot code + L×W×H mm + carat weight), "ITEM CODE: SF-2996 24X11X4 mm", "Number: 11. 25x25x5 mm", "Price & details: 4. 38x23x6 MM, 38 CT", "Choose Your Favorite Number: 1421. 21X12X6 MM", or a calibrated-size choice like "Sizes: 9 mm".
+- When such a selection is present, the item is ONE specific stone: quantity_purchased is "1 stone", estimated_units 1, unit_cost = the discounted line price. Take the dimensions from the variation, never the title: "Iron Tiger Eye Cabochon 30x24mm" (drop the height/thickness and the carat weight from the name; a shape word like Oval/Teardrop/Freeform may follow if the receipt photo shows it clearly — omit it rather than guess).
+- Identical titles on multiple lines are DIFFERENT one-of-a-kind stones (their selection codes differ) — extract each separately, never merge.
+- If the variation names a different stone than the title, trust the variation; seller dropdowns are mislabeled more often than buyer selections.
+- A matched "pair" listing is 2 physical stones on one line: quantity 2, estimated_units 2, unit_cost = half the line price.
+- Never put lot/selection codes (IR3896, SF-1126, i-2985…) in the name — they identify the listing, not the material.
+- Calibrated-stone listings (exact size chosen from a dropdown, Etsy quantity may exceed 1) use the chosen size in the name and the real Etsy quantity.
+
+NON-SUPPLY LINES:
+- Finished jewelry (a completed necklace, bracelet, or pendant-on-chain sold ready to wear) is not a material: category "Other", and flag it in notes.
+- Tools (pliers, organizers, glue) get category "Tools" and a null visual.
+
 PRICING:
 - Apply any shop discounts, sales, or percentage-off deals shown on the receipt. If an item shows $30.00 with a 70% shop discount, the price paid was $9.00.
 
@@ -91,6 +104,7 @@ VISUALS:
 - When splitting an assortment, give each variant its own visual (the "Silver" variants get silver coloring, the 4mm variants get 4mm dimensions, and so on).
 - length_mm is the dimension along the stringing hole (a 8x4mm rondelle advances the strand 4mm); width_mm is the visible diameter.
 - Non-bead components use the component shapes: 'chain' (length_mm always 25.4 — one element is a 1-inch segment), 'jump-ring', 'lobster-clasp', 'toggle-clasp', 'connector' (bar with end loops), 'figure-eight' (infinity links), 'triangle' (triangle charms), 'cabochon'. Metal findings are almost always metallic finish.
+- Cabochons: shape 'cabochon', length_mm = the stone's longer face dimension, width_mm = the shorter (thickness is not rendered). Color and pattern from the receipt photo of the specific stone whenever one is shown.
 
 ESTIMATING UNITS:
 - For bead strands, estimate bead count from strand length and bead size (a 15" strand of 8mm beads is about 48 beads; a 16" strand of 6mm beads is about 67 beads).
