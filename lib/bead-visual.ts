@@ -58,6 +58,17 @@ export const COMPONENT_SHAPES = [
 
 export const VISUAL_SHAPES = [...BEAD_SHAPES, ...COMPONENT_SHAPES] as const;
 
+// How a cabochon is drilled — decides whether it needs hardware (bezel or
+// pinch bail) or strings straight onto the wire, and how it hangs.
+export const DRILL_TYPES = ["none", "front-back", "top", "center"] as const;
+export type DrillType = (typeof DRILL_TYPES)[number];
+export const DRILL_LABELS: Record<DrillType, string> = {
+  none: "Undrilled (needs setting)",
+  "front-back": "Front-to-back (pinch bail)",
+  top: "Top-drilled (hangs from wire)",
+  center: "Center-drilled (strings inline)",
+};
+
 export const BeadVisualSchema = z.object({
   shape: z
     .enum(VISUAL_SHAPES)
@@ -100,6 +111,12 @@ export const BeadVisualSchema = z.object({
       "Color distribution. Jaspers/agates are often marbled or banded; most glass and metal is solid."
     ),
   faceted: z.boolean().describe("True if the bead surface is faceted rather than smooth"),
+  drill: z
+    .enum(DRILL_TYPES)
+    .nullable()
+    .describe(
+      "Cabochons only (null for everything else). How the stone is drilled, which decides how it attaches: 'none' = undrilled, needs a bezel setting or glue-on bail; 'front-back' = hole through the face, hangs from a pinch bail; 'top' = lengthwise hole across the top, strings directly and hangs as a pendant; 'center' = lengthwise hole through the middle, strings inline like a bead. Null when a cabochon is drilled but the receipt doesn't say how."
+    ),
 });
 
 export type BeadVisual = z.infer<typeof BeadVisualSchema>;

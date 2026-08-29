@@ -19,7 +19,13 @@ import BeadFilters from "@/components/BeadFilters";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
 import { generateVisualForName } from "@/lib/visuals";
-import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
+import {
+  colorFamilyOf,
+  sizeBucketOf,
+  DRILL_TYPES,
+  DRILL_LABELS,
+  type DrillType,
+} from "@/lib/bead-visual";
 import { CATEGORIES, type Material, type NewMaterial } from "@/lib/types";
 
 type SortKey = "name" | "category" | "unit_cost" | "quantity";
@@ -43,6 +49,8 @@ interface EditDraft {
   unit_cost: string;
   unit_type: string;
   quantity: string;
+  /** Cabochons only; "" = not recorded. */
+  drill: DrillType | "";
 }
 
 interface Props {
@@ -150,6 +158,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
         unit_cost: String(material.unit_cost),
         unit_type: material.unit_type,
         quantity: String(material.quantity),
+        drill: material.visual?.drill ?? "",
       },
     });
     setRegenVisual(false);
@@ -189,14 +198,24 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
         unit_type: edit.form.unit_type.trim() || "piece",
         quantity,
       });
+      const cabVisual =
+        edit.material.visual?.shape === "cabochon" ? edit.material.visual : null;
+      const drill: DrillType | null = edit.form.drill || null;
       let regenError: string | null = null;
       if (regenVisual) {
         try {
           const visual = await generateVisualForName(edit.material.id, name);
-          if (visual) await updateMaterial(edit.material.id, { visual });
+          if (visual) {
+            // A hand-set drill type outranks whatever the name implied.
+            await updateMaterial(edit.material.id, {
+              visual: cabVisual ? { ...visual, drill } : visual,
+            });
+          }
         } catch (e) {
           regenError = e instanceof Error ? e.message : "unknown error";
         }
+      } else if (cabVisual && drill !== (cabVisual.drill ?? null)) {
+        await updateMaterial(edit.material.id, { visual: { ...cabVisual, drill } });
       }
       setEdit(null);
       if (regenError) {
@@ -553,6 +572,25 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 Refresh visual from name
                 {busy && <span className="text-purple-600 font-medium">— Saving…</span>}
               </label>
+              {edit.material.visual?.shape === "cabochon" && (
+                <label className="mt-2 ml-4 inline-flex items-center gap-1.5 text-xs text-gray-600">
+                  Drill
+                  <select
+                    value={edit.form.drill}
+                    onChange={(e) => setDraft({ drill: e.target.value as DrillType | "" })}
+                    disabled={busy}
+                    aria-label="Drill type"
+                    className="px-2 py-1 text-xs border border-gray-300 rounded disabled:bg-gray-100"
+                  >
+                    <option value="">Not recorded</option>
+                    {DRILL_TYPES.map((d) => (
+                      <option key={d} value={d}>
+                        {DRILL_LABELS[d]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           ) : (
             <div

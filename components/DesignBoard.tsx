@@ -73,16 +73,23 @@ interface Props {
 }
 
 // A cabochon is worn as a pendant: it hangs below the string from a bail and
-// advances the strand by only the bail's width, not the stone's size.
+// advances the strand by only the bail's width, not the stone's size. The
+// exception is a center-drilled stone, which strings inline like a bead.
 const CABOCHON_ADVANCE_MM = 6;
 const CABOCHON_BAIL_MM = 4;
 
+const isPendant = (v: BeadVisual | null | undefined) =>
+  v?.shape === "cabochon" && v.drill !== "center";
+// Pendants with their own hole hang straight from the wire; everything else
+// hangs from a bail (real for front-back drilled, a placeholder for undrilled).
+const hasBail = (v: BeadVisual) => v.drill !== "top";
+
 const beadLengthMm = (m: Material | undefined) =>
-  m?.visual?.shape === "cabochon"
+  isPendant(m?.visual)
     ? CABOCHON_ADVANCE_MM
     : m?.visual?.length_mm ?? FALLBACK_BEAD_MM;
 const beadWidthMm = (m: Material | undefined) =>
-  m?.visual?.shape === "cabochon"
+  isPendant(m?.visual)
     ? CABOCHON_ADVANCE_MM
     : m?.visual?.width_mm ?? FALLBACK_BEAD_MM;
 
@@ -588,8 +595,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const pendantDropMm = Math.max(
     0,
     ...strand.placed.map((p) =>
-      p.material?.visual?.shape === "cabochon"
-        ? CABOCHON_BAIL_MM + p.material.visual.length_mm
+      p.material?.visual && isPendant(p.material.visual)
+        ? (hasBail(p.material.visual) ? CABOCHON_BAIL_MM : 0) +
+          p.material.visual.length_mm
         : 0
     )
   );
@@ -947,13 +955,18 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               const centerS = p.xMm + p.lengthMm / 2;
               const lengthPx = p.lengthMm * pxPerMm;
               const widthPx = widthMm * pxPerMm;
-              if (visual?.shape === "cabochon") {
-                // Pendant local frame: bail at the origin, stone hanging
+              if (visual && isPendant(visual)) {
+                // Pendant local frame: the string at the origin, stone hanging
                 // toward +y. On the worn curve, +y is rotated to gravity
                 // (drape) or radially outward (bracelet).
                 const stoneW = visual.width_mm * pxPerMm;
                 const stoneL = visual.length_mm * pxPerMm;
-                const bailR = (CABOCHON_BAIL_MM / 2) * pxPerMm;
+                const bail = hasBail(visual);
+                const bailR = bail ? (CABOCHON_BAIL_MM / 2) * pxPerMm : 0;
+                // Undrilled stones have no hardware yet — a dashed bail marks
+                // the setting or glue-on bail they still need.
+                const bailDash = visual.drill === "none";
+                const stoneTop = bail ? bailR * 1.6 : 0;
                 return (
                   <g
                     key={p.index}
@@ -970,21 +983,24 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                         x={-stoneW / 2 - 1.5}
                         y={-bailR - 3}
                         width={stoneW + 3}
-                        height={bailR * 2.6 + stoneL + 6}
+                        height={stoneTop + bailR + stoneL + 6}
                         rx={4}
                         fill="#a855f7"
                         opacity={0.25}
                       />
                     )}
-                    <circle
-                      cx={0}
-                      cy={bailR * 0.6}
-                      r={bailR}
-                      fill="none"
-                      stroke="#9ca3af"
-                      strokeWidth={Math.max(1, bailR * 0.35)}
-                    />
-                    <g transform={`translate(${stoneW / 2}, ${bailR * 1.6}) rotate(90)`}>
+                    {bail && (
+                      <circle
+                        cx={0}
+                        cy={bailR * 0.6}
+                        r={bailR}
+                        fill="none"
+                        stroke="#9ca3af"
+                        strokeWidth={Math.max(1, bailR * 0.35)}
+                        strokeDasharray={bailDash ? `${bailR * 0.7} ${bailR * 0.5}` : undefined}
+                      />
+                    )}
+                    <g transform={`translate(${stoneW / 2}, ${stoneTop}) rotate(90)`}>
                       <Bead
                         visual={visual}
                         pxPerMm={pxPerMm}

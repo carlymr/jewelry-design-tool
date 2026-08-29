@@ -105,6 +105,7 @@ VISUALS:
 - length_mm is the dimension along the stringing hole (a 8x4mm rondelle advances the strand 4mm); width_mm is the visible diameter.
 - Non-bead components use the component shapes: 'chain' (length_mm always 25.4 — one element is a 1-inch segment), 'jump-ring', 'lobster-clasp', 'toggle-clasp', 'connector' (bar with end loops), 'figure-eight' (infinity links), 'triangle' (triangle charms), 'cabochon'. Metal findings are almost always metallic finish.
 - Cabochons: shape 'cabochon', length_mm = the stone's longer face dimension, width_mm = the shorter (thickness is not rendered). Color and pattern from the receipt photo of the specific stone whenever one is shown.
+- Cabochon drill: 'top' for "top drilled"/"top-drilled"; 'center' for "center drilled" or "drilled through"; 'front-back' when the listing or photo shows a hole through the face; 'none' for plain undrilled cabs (the default for stone-shop cabs). A personalization like "drill style A/C/D" means drilled in a shop-specific way — use null and mention it in notes rather than guessing.
 
 ESTIMATING UNITS:
 - For bead strands, estimate bead count from strand length and bead size (a 15" strand of 8mm beads is about 48 beads; a 16" strand of 6mm beads is about 67 beads).
