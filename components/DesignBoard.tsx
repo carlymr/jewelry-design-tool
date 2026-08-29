@@ -27,8 +27,10 @@ import {
   updateDesign,
 } from "@/lib/designs";
 import {
+  cabochonAttachment,
   colorFamilyOf,
   sizeBucketOf,
+  DRILL_LABELS,
   type BeadVisual,
 } from "@/lib/bead-visual";
 import { curveGeometry, curvePath } from "@/lib/strand-layout";
@@ -73,16 +75,26 @@ interface Props {
 }
 
 // A cabochon is worn as a pendant: it hangs below the string from a bail and
-// advances the strand by only the bail's width, not the stone's size.
+// advances the strand by only the bail's width, not the stone's size. The
+// exception is a center-drilled stone, which strings inline like a bead.
 const CABOCHON_ADVANCE_MM = 6;
 const CABOCHON_BAIL_MM = 4;
 
+// Everything but an inline (center-drilled) cabochon hangs below the string.
+const isPendant = (v: BeadVisual | null | undefined) => {
+  const a = cabochonAttachment(v);
+  return a !== null && a !== "inline";
+};
+// Wire-hung pendants have no ring; the rest hang from a bail (real, or a
+// placeholder standing in for the setting an undrilled stone still needs).
+const hasBail = (v: BeadVisual) => cabochonAttachment(v) !== "wire";
+
 const beadLengthMm = (m: Material | undefined) =>
-  m?.visual?.shape === "cabochon"
+  isPendant(m?.visual)
     ? CABOCHON_ADVANCE_MM
     : m?.visual?.length_mm ?? FALLBACK_BEAD_MM;
 const beadWidthMm = (m: Material | undefined) =>
-  m?.visual?.shape === "cabochon"
+  isPendant(m?.visual)
     ? CABOCHON_ADVANCE_MM
     : m?.visual?.width_mm ?? FALLBACK_BEAD_MM;
 
@@ -588,8 +600,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const pendantDropMm = Math.max(
     0,
     ...strand.placed.map((p) =>
-      p.material?.visual?.shape === "cabochon"
-        ? CABOCHON_BAIL_MM + p.material.visual.length_mm
+      p.material?.visual && isPendant(p.material.visual)
+        ? (hasBail(p.material.visual) ? CABOCHON_BAIL_MM : 0) +
+          p.material.visual.length_mm
         : 0
     )
   );
@@ -947,13 +960,21 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               const centerS = p.xMm + p.lengthMm / 2;
               const lengthPx = p.lengthMm * pxPerMm;
               const widthPx = widthMm * pxPerMm;
-              if (visual?.shape === "cabochon") {
-                // Pendant local frame: bail at the origin, stone hanging
+              if (visual && isPendant(visual)) {
+                // Pendant local frame: the string at the origin, stone hanging
                 // toward +y. On the worn curve, +y is rotated to gravity
                 // (drape) or radially outward (bracelet).
                 const stoneW = visual.width_mm * pxPerMm;
                 const stoneL = visual.length_mm * pxPerMm;
-                const bailR = (CABOCHON_BAIL_MM / 2) * pxPerMm;
+                const bail = hasBail(visual);
+                const bailR = bail ? (CABOCHON_BAIL_MM / 2) * pxPerMm : 0;
+                // Undrilled (or unrecorded) stones have no hardware yet — a
+                // dashed amber bail marks the setting they still need.
+                const bailDash = cabochonAttachment(visual) === "placeholder";
+                const stoneTop = bail ? bailR * 1.6 : 0;
+                const drillNote = visual.drill
+                  ? DRILL_LABELS[visual.drill]
+                  : "Drill type not recorded — set it in Inventory";
                 return (
                   <g
                     key={p.index}
@@ -965,26 +986,30 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                     onPointerDown={(e) => handleBeadPointerDown(p.index, e)}
                     className="cursor-grab active:cursor-grabbing"
                   >
+                    <title>{`${p.material?.name ?? "Cabochon"} · ${drillNote}`}</title>
                     {selected && (
                       <rect
                         x={-stoneW / 2 - 1.5}
                         y={-bailR - 3}
                         width={stoneW + 3}
-                        height={bailR * 2.6 + stoneL + 6}
+                        height={stoneTop + bailR + stoneL + 6}
                         rx={4}
                         fill="#a855f7"
                         opacity={0.25}
                       />
                     )}
-                    <circle
-                      cx={0}
-                      cy={bailR * 0.6}
-                      r={bailR}
-                      fill="none"
-                      stroke="#9ca3af"
-                      strokeWidth={Math.max(1, bailR * 0.35)}
-                    />
-                    <g transform={`translate(${stoneW / 2}, ${bailR * 1.6}) rotate(90)`}>
+                    {bail && (
+                      <circle
+                        cx={0}
+                        cy={bailR * 0.6}
+                        r={bailR}
+                        fill="none"
+                        stroke={bailDash ? "#d97706" : "#9ca3af"}
+                        strokeWidth={Math.max(1, bailR * 0.35)}
+                        strokeDasharray={bailDash ? `${bailR * 0.7} ${bailR * 0.5}` : undefined}
+                      />
+                    )}
+                    <g transform={`translate(${stoneW / 2}, ${stoneTop}) rotate(90)`}>
                       <Bead
                         visual={visual}
                         pxPerMm={pxPerMm}
@@ -1316,6 +1341,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                       {m.quantity} in stock · ${m.unit_cost.toFixed(3)}/ea
                       {m.visual?.shape === "chain" && (
                         <span className="text-purple-600"> · adds 1&quot; per click</span>
+                      )}
+                      {cabochonAttachment(m.visual) === "placeholder" && (
+                        <span className="text-amber-600"> · needs setting</span>
                       )}
                     </span>
                   </span>
