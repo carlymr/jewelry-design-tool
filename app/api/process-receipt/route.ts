@@ -40,8 +40,10 @@ const ExtractedItemSchema = z.object({
       'Standardized name following "[Material/Color] [Item Type] [Size] [Shape/Detail]", e.g. "Gold Spacer Beads 4mm Round"'
     ),
   category: z
-    .enum(["Beads", "Cabochons", "Findings", "Wire", "Stringing", "Tools", "Other"])
-    .describe("Material category"),
+    .string()
+    .describe(
+      "Material category — one of: Beads, Cabochons, Findings, Wire, Stringing, Tools, Other. Chain, settings, bails, clasps, and charms are Findings."
+    ),
   quantity_purchased: z
     .string()
     .describe('Quantity as purchased for this variant, e.g. "200 beads" or "1 spool"'),
@@ -59,6 +61,37 @@ const ExtractedItemSchema = z.object({
     "Visual spec for anything that can sit on a strand: beads, spacers, chains, clasps, jump rings, connectors, and cabochons. Use the product photos on the receipt when present — especially for color and finish. Null only for items that never appear on a strand (wire, cord, thread, tools)."
   ),
 });
+
+// The model occasionally invents a category ("Chain", "Settings"); one bad
+// value must not sink a 30-line receipt, so category is free text in the
+// schema and normalized here instead of enum-validated.
+const CATEGORY_ALIASES: Record<string, string> = {
+  bead: "Beads",
+  beads: "Beads",
+  cabochon: "Cabochons",
+  cabochons: "Cabochons",
+  finding: "Findings",
+  findings: "Findings",
+  chain: "Findings",
+  chains: "Findings",
+  clasp: "Findings",
+  clasps: "Findings",
+  setting: "Findings",
+  settings: "Findings",
+  bail: "Findings",
+  bails: "Findings",
+  charm: "Findings",
+  charms: "Findings",
+  wire: "Wire",
+  stringing: "Stringing",
+  cord: "Stringing",
+  thread: "Stringing",
+  tool: "Tools",
+  tools: "Tools",
+  other: "Other",
+};
+const normalizeCategory = (raw: string) =>
+  CATEGORY_ALIASES[raw.trim().toLowerCase()] ?? "Other";
 
 const ReceiptExtractionSchema = z.object({
   items: z.array(ExtractedItemSchema),
@@ -92,6 +125,13 @@ PICK-YOUR-STONE CABOCHONS — one-of-a-kind stones sold through generic listings
 - Never put lot/selection codes (IR3896, SF-1126, i-2985…) in the name — they identify the listing, not the material.
 - Calibrated-stone listings (exact size chosen from a dropdown, Etsy quantity may exceed 1) use the chosen size in the name and the real Etsy quantity.
 
+PENDANT BLANKS, BEZEL SETTINGS, AND BAILS:
+- Bezel blanks / cabochon bases / pendant settings / mountings are Findings. Name them by finish + type + the RECESS size (the stone they fit), not the outer size: "Antique Silver Plated Brass Mountings 44x37 mm (27 mm blank)" → "Antique Silver Bezel Setting 27mm Round"; "Setting For 30mm Cab, 46x31mm overall" → "Platinum Brass Bezel Setting 30mm Round". Keep the recess shape (Round, Oval, Teardrop, Hexagon…) when stated.
+- Bails (pinch bails, pendant bails, leaf/flower/branch bails) are Findings named finish + "Pinch Bail" + size/style: "Rhodium Sterling Silver Pinch Bail Small Branch".
+- The Etsy quantity is almost always 1 for these; the real count is in the variation ("Select Pieces: 5 pcs", "Number of Settings: 5", "quantity: 10 pieces") or a leading number in the title ("10 Hexagonal Charms"). Use it for estimated_units.
+- Visuals: shape 'bezel' with length_mm/width_mm = the recess dimensions; shape 'bail' with length_mm = the bail's width along the strand and width_mm its height (a "small" pinch bail is roughly 5x8mm, "big" about 8x14mm). Metallic finish, color from the plating.
+- A setting sold WITH a glass cabochon is still one item (the setting); mention the included stone in notes.
+
 NON-SUPPLY LINES:
 - Finished jewelry (a completed necklace, bracelet, or pendant-on-chain sold ready to wear) is not a material: category "Other", and flag it in notes.
 - Tools (pliers, organizers, glue) get category "Tools" and a null visual.
@@ -103,7 +143,7 @@ VISUALS:
 - For each item that can sit on a strand — beads, spacers, chains, clasps, jump rings, connectors, cabochons — fill in the visual spec. Product photos on the receipt are the best source for color, finish, and pattern — use them when present; otherwise infer from the material name (e.g. ocean jasper is typically mottled sea-green).
 - When splitting an assortment, give each variant its own visual (the "Silver" variants get silver coloring, the 4mm variants get 4mm dimensions, and so on).
 - length_mm is the dimension along the stringing hole (a 8x4mm rondelle advances the strand 4mm); width_mm is the visible diameter.
-- Non-bead components use the component shapes: 'chain' (length_mm always 25.4 — one element is a 1-inch segment), 'jump-ring', 'lobster-clasp', 'toggle-clasp', 'connector' (bar with end loops), 'figure-eight' (infinity links), 'triangle' (triangle charms), 'cabochon'. Metal findings are almost always metallic finish.
+- Non-bead components use the component shapes: 'chain' (length_mm always 25.4 — one element is a 1-inch segment), 'jump-ring', 'lobster-clasp', 'toggle-clasp', 'connector' (bar with end loops), 'figure-eight' (infinity links), 'triangle' (triangle charms), 'cabochon', 'bezel' (settings/blanks), 'bail' (pinch bails). Metal findings are almost always metallic finish.
 - Cabochons: shape 'cabochon', length_mm = the stone's longer face dimension, width_mm = the shorter (thickness is not rendered). Color and pattern from the receipt photo of the specific stone whenever one is shown.
 - Cabochon drill: 'top' for "top drilled"/"top-drilled"; 'center' for "center drilled" or "drilled through"; 'front-back' when the listing or photo shows a hole through the face; 'none' for plain undrilled cabs (the default for stone-shop cabs). A personalization like "drill style A/C/D" means drilled in a shop-specific way — use null and mention it in notes rather than guessing.
 
@@ -215,7 +255,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json(parsed);
+    return NextResponse.json({
+      ...parsed,
+      items: parsed.items.map((item) => ({
+        ...item,
+        category: normalizeCategory(item.category),
+      })),
+    });
   } catch (error) {
     if (error instanceof Anthropic.RateLimitError) {
       return NextResponse.json(

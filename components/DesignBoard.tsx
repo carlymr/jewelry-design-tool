@@ -28,6 +28,7 @@ import {
 } from "@/lib/designs";
 import {
   cabochonAttachment,
+  pendantAttachment,
   colorFamilyOf,
   sizeBucketOf,
   DRILL_LABELS,
@@ -80,14 +81,11 @@ interface Props {
 const CABOCHON_ADVANCE_MM = 6;
 const CABOCHON_BAIL_MM = 4;
 
-// Everything but an inline (center-drilled) cabochon hangs below the string.
-const isPendant = (v: BeadVisual | null | undefined) => {
-  const a = cabochonAttachment(v);
-  return a !== null && a !== "inline";
-};
+// Cabochons (unless center-drilled) and bezel settings hang below the string.
+const isPendant = (v: BeadVisual | null | undefined) => pendantAttachment(v) !== null;
 // Wire-hung pendants have no ring; the rest hang from a bail (real, or a
 // placeholder standing in for the setting an undrilled stone still needs).
-const hasBail = (v: BeadVisual) => cabochonAttachment(v) !== "wire";
+const hasBail = (v: BeadVisual) => pendantAttachment(v) !== "wire";
 
 const beadLengthMm = (m: Material | undefined) =>
   isPendant(m?.visual)
@@ -972,9 +970,12 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 // dashed amber bail marks the setting they still need.
                 const bailDash = cabochonAttachment(visual) === "placeholder";
                 const stoneTop = bail ? bailR * 1.6 : 0;
-                const drillNote = visual.drill
-                  ? DRILL_LABELS[visual.drill]
-                  : "Drill type not recorded — set it in Inventory";
+                const drillNote =
+                  visual.shape === "bezel"
+                    ? "Bezel setting (empty)"
+                    : visual.drill
+                      ? DRILL_LABELS[visual.drill]
+                      : "Drill type not recorded — set it in Inventory";
                 return (
                   <g
                     key={p.index}

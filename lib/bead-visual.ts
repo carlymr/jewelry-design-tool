@@ -54,6 +54,8 @@ export const COMPONENT_SHAPES = [
   "figure-eight",
   "triangle",
   "cabochon",
+  "bezel",
+  "bail",
 ] as const;
 
 export const VISUAL_SHAPES = [...BEAD_SHAPES, ...COMPONENT_SHAPES] as const;
@@ -68,6 +70,16 @@ export const DRILL_LABELS: Record<DrillType, string> = {
   top: "Top-drilled (hangs from wire)",
   center: "Center-drilled (strings inline)",
 };
+
+/** A bezel setting hangs like a pendant from its own loop; cabochons depend
+ * on their drill type. Null for anything strung inline. */
+export function pendantAttachment(
+  v: BeadVisual | null | undefined
+): CabochonAttachment | null {
+  if (v?.shape === "bezel") return "wire";
+  const a = cabochonAttachment(v);
+  return a === "inline" ? null : a;
+}
 
 /** How a cabochon attaches to the strand, derived from its drill type. An
  * unrecorded drill counts as needing hardware: stone-shop cabs are undrilled
@@ -95,7 +107,7 @@ export const BeadVisualSchema = z.object({
   shape: z
     .enum(VISUAL_SHAPES)
     .describe(
-      "Closest basic shape. Beads: use 'chip' or 'nugget' for irregular stones, 'octagon' for cornerless/faceted cubes, 'flower' for carved flower beads. Components: 'chain' for link chain, 'jump-ring' for plain rings, 'lobster-clasp' for lobster/spring clasps, 'toggle-clasp' for toggle ring-and-bar clasps, 'connector' for straight bars with a loop at each end, 'figure-eight' for infinity links and double-ring connectors, 'triangle' for triangle charms and open geometric connectors, 'cabochon' for flat-backed focal stones (drawn hanging as a pendant)."
+      "Closest basic shape. Beads: use 'chip' or 'nugget' for irregular stones, 'octagon' for cornerless/faceted cubes, 'flower' for carved flower beads. Components: 'chain' for link chain, 'jump-ring' for plain rings, 'lobster-clasp' for lobster/spring clasps, 'toggle-clasp' for toggle ring-and-bar clasps, 'connector' for straight bars with a loop at each end, 'figure-eight' for infinity links and double-ring connectors, 'triangle' for triangle charms and open geometric connectors, 'cabochon' for flat-backed focal stones (drawn hanging as a pendant), 'bezel' for pendant blanks / bezel settings / cabochon bases (sized by the recess — the stone it fits — not the outer frame), 'bail' for pinch bails and pendant bails."
     ),
   length_mm: z
     .number()
