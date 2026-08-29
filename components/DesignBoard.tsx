@@ -27,7 +27,6 @@ import {
   updateDesign,
 } from "@/lib/designs";
 import {
-  cabochonAttachment,
   pendantAttachment,
   colorFamilyOf,
   sizeBucketOf,
@@ -82,7 +81,10 @@ const CABOCHON_ADVANCE_MM = 6;
 const CABOCHON_BAIL_MM = 4;
 
 // Cabochons (unless center-drilled) and bezel settings hang below the string.
-const isPendant = (v: BeadVisual | null | undefined) => pendantAttachment(v) !== null;
+const isPendant = (v: BeadVisual | null | undefined) => {
+  const a = pendantAttachment(v);
+  return a !== null && a !== "inline";
+};
 // Wire-hung pendants have no ring; the rest hang from a bail (real, or a
 // placeholder standing in for the setting an undrilled stone still needs).
 const hasBail = (v: BeadVisual) => pendantAttachment(v) !== "wire";
@@ -968,14 +970,15 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 const bailR = bail ? (CABOCHON_BAIL_MM / 2) * pxPerMm : 0;
                 // Undrilled (or unrecorded) stones have no hardware yet — a
                 // dashed amber bail marks the setting they still need.
-                const bailDash = cabochonAttachment(visual) === "placeholder";
+                const bailDash = pendantAttachment(visual) === "placeholder";
                 const stoneTop = bail ? bailR * 1.6 : 0;
                 const drillNote =
                   visual.shape === "bezel"
-                    ? "Bezel setting (empty)"
+                    ? "Empty bezel setting — place its cabochon separately; the board doesn't combine them yet"
                     : visual.drill
                       ? DRILL_LABELS[visual.drill]
                       : "Drill type not recorded — set it in Inventory";
+                const fallbackName = visual.shape === "bezel" ? "Bezel setting" : "Cabochon";
                 return (
                   <g
                     key={p.index}
@@ -987,7 +990,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                     onPointerDown={(e) => handleBeadPointerDown(p.index, e)}
                     className="cursor-grab active:cursor-grabbing"
                   >
-                    <title>{`${p.material?.name ?? "Cabochon"} · ${drillNote}`}</title>
+                    <title>{`${p.material?.name ?? fallbackName} · ${drillNote}`}</title>
                     {selected && (
                       <rect
                         x={-stoneW / 2 - 1.5}
@@ -1343,7 +1346,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                       {m.visual?.shape === "chain" && (
                         <span className="text-purple-600"> · adds 1&quot; per click</span>
                       )}
-                      {cabochonAttachment(m.visual) === "placeholder" && (
+                      {pendantAttachment(m.visual) === "placeholder" && (
                         <span className="text-amber-600"> · needs setting</span>
                       )}
                     </span>

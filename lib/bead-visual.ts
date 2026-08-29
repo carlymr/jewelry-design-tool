@@ -71,25 +71,17 @@ export const DRILL_LABELS: Record<DrillType, string> = {
   center: "Center-drilled (strings inline)",
 };
 
-/** A bezel setting hangs like a pendant from its own loop; cabochons depend
- * on their drill type. Null for anything strung inline. */
+/** How a pendant-style element attaches to the strand. Bezel settings hang
+ * from their own loop; cabochons depend on their drill type — an unrecorded
+ * drill counts as needing hardware, because stone-shop cabs are undrilled
+ * unless something says otherwise, so "unknown" should look like "needs
+ * attention" rather than like a confirmed pinch-bail hole. "inline" is a
+ * center-drilled cab strung like a bead; null is anything else. */
+export type PendantAttachment = "bail" | "placeholder" | "wire" | "inline";
 export function pendantAttachment(
   v: BeadVisual | null | undefined
-): CabochonAttachment | null {
+): PendantAttachment | null {
   if (v?.shape === "bezel") return "wire";
-  const a = cabochonAttachment(v);
-  return a === "inline" ? null : a;
-}
-
-/** How a cabochon attaches to the strand, derived from its drill type. An
- * unrecorded drill counts as needing hardware: stone-shop cabs are undrilled
- * unless something says otherwise, so "unknown" should look like "needs
- * attention" rather than like a confirmed pinch-bail hole. Null for
- * anything that isn't a cabochon. */
-export type CabochonAttachment = "bail" | "placeholder" | "wire" | "inline";
-export function cabochonAttachment(
-  v: BeadVisual | null | undefined
-): CabochonAttachment | null {
   if (v?.shape !== "cabochon") return null;
   switch (v.drill) {
     case "center":

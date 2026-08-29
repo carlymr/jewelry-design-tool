@@ -30,7 +30,7 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 
 - Searchable, sortable, paginated table with bead swatches, inline stock editing, and **color family / size filters**
 - **Full row editing**: fix a material's name, category, cost, or unit after import (sellers mislabel stones); renaming offers to regenerate the visual from the corrected name
-- **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries, estimating bead counts from strand lengths, resolving pick-your-stone cabochon selections (the variation code/dimensions, not the generic listing title), and naming bezel settings by the stone they fit — into an editable preview before importing
+- **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries, estimating bead counts from strand lengths, resolving pick-your-stone cabochon selections (the variation code/dimensions, not the generic listing title), and naming bezel settings by the stone they fit and bails by finish and size — into an editable preview before importing
 - **CSV import/export** compatible with the original artifact tool (`Name, Category, Cost Per Unit, Unit, In Stock`)
 
 ### Pricing & listing

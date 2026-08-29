@@ -276,13 +276,15 @@ function componentElement(
     case "bezel": {
       // Empty setting: the bezel wall as a thick outer rim with a thin inner
       // lip, sized to the recess so it reads as the frame a cab drops into.
-      const sw = Math.max(1, Math.min(L, W) * 0.12);
+      // Rim clamped so the recess always exists — a null here would fall
+      // back to the filled bead pipeline and look like a cabochon.
+      const sw = Math.min(Math.max(1, Math.min(L, W) * 0.12), Math.min(L, W) * 0.3);
       const rx = L / 2 - sw / 2;
       const ry = W / 2 - sw / 2;
-      if (rx <= 0 || ry <= 0) return null;
       return (
         <g fill="none" stroke={paint}>
-          <ellipse cx={L / 2} cy={W / 2} rx={rx} ry={ry} strokeWidth={sw} />
+          {/* a faint fill in the well keeps it from reading as a jump ring */}
+          <ellipse cx={L / 2} cy={W / 2} rx={rx} ry={ry} fill={paint} fillOpacity={0.18} strokeWidth={sw} />
           <ellipse
             cx={L / 2}
             cy={W / 2}

@@ -33,7 +33,7 @@ const promptFor = (name: string) => `This photo shows the jewelry material named
 
 - The photo is the primary evidence: read the true colors, secondary color, finish (matte/glossy/metallic/pearl/transparent), pattern (solid/marbled/speckled/banded), faceting, and shape directly from it. Prefer what you see over what the name implies.
 - Dimensions: use sizes stated in the name when present; otherwise estimate from the photo's context (fingers, rulers, strand curvature) or typical sizes for the item type. length_mm runs along the stringing hole; width_mm is the visible diameter. For 'chain', length_mm is always 25.4 (one 1-inch segment).
-- Non-bead components use the component shapes: 'chain', 'jump-ring', 'lobster-clasp', 'toggle-clasp', 'connector' (bar with end loops), 'figure-eight' (infinity links), 'triangle' (triangle charms), 'cabochon' (flat-backed focal stones; length_mm is the long axis).`;
+- Non-bead components use the component shapes: 'chain', 'jump-ring', 'lobster-clasp', 'toggle-clasp', 'connector' (bar with end loops), 'figure-eight' (infinity links), 'triangle' (triangle charms), 'cabochon' (flat-backed focal stones; length_mm is the long axis), 'bezel' (bezel settings / pendant blanks — length_mm/width_mm are the recess the stone fits), 'bail' (pinch bails — length_mm is the width along the strand).`;
 
 // Storage calls run with the caller's session token: the receipts bucket is
 // authenticated-only since the 0006 lockdown, and the route holds no service

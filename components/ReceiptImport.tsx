@@ -1,5 +1,7 @@
 "use client";
 
+import { CATEGORIES } from "@/lib/types";
+
 import { useRef, useState } from "react";
 import { Upload, Eye, Trash2 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
@@ -161,9 +163,22 @@ export default function ReceiptImport({ onImported }: Props) {
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="text-gray-500 mt-1">
-                      {item.category} • {item.quantity_purchased} • $
-                      {item.total_price.toFixed(2)} total
+                    <div className="text-gray-500 mt-1 flex items-center gap-1 flex-wrap">
+                      <select
+                        value={item.category}
+                        onChange={(e) => updateItem(index, { category: e.target.value })}
+                        aria-label="Category"
+                        className="px-1 py-0.5 border border-gray-300 rounded text-xs bg-white"
+                      >
+                        {CATEGORIES.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                      <span>
+                        • {item.quantity_purchased} • ${item.total_price.toFixed(2)} total
+                      </span>
                     </div>
                     <div className="mt-2 flex items-center gap-2 text-gray-700">
                       <label className="text-xs text-gray-500">Units:</label>
