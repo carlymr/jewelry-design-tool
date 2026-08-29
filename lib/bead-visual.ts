@@ -69,6 +69,28 @@ export const DRILL_LABELS: Record<DrillType, string> = {
   center: "Center-drilled (strings inline)",
 };
 
+/** How a cabochon attaches to the strand, derived from its drill type. An
+ * unrecorded drill counts as needing hardware: stone-shop cabs are undrilled
+ * unless something says otherwise, so "unknown" should look like "needs
+ * attention" rather than like a confirmed pinch-bail hole. Null for
+ * anything that isn't a cabochon. */
+export type CabochonAttachment = "bail" | "placeholder" | "wire" | "inline";
+export function cabochonAttachment(
+  v: BeadVisual | null | undefined
+): CabochonAttachment | null {
+  if (v?.shape !== "cabochon") return null;
+  switch (v.drill) {
+    case "center":
+      return "inline";
+    case "top":
+      return "wire";
+    case "front-back":
+      return "bail";
+    default:
+      return "placeholder";
+  }
+}
+
 export const BeadVisualSchema = z.object({
   shape: z
     .enum(VISUAL_SHAPES)

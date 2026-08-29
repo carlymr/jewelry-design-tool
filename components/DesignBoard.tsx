@@ -27,8 +27,10 @@ import {
   updateDesign,
 } from "@/lib/designs";
 import {
+  cabochonAttachment,
   colorFamilyOf,
   sizeBucketOf,
+  DRILL_LABELS,
   type BeadVisual,
 } from "@/lib/bead-visual";
 import { curveGeometry, curvePath } from "@/lib/strand-layout";
@@ -78,11 +80,14 @@ interface Props {
 const CABOCHON_ADVANCE_MM = 6;
 const CABOCHON_BAIL_MM = 4;
 
-const isPendant = (v: BeadVisual | null | undefined) =>
-  v?.shape === "cabochon" && v.drill !== "center";
-// Pendants with their own hole hang straight from the wire; everything else
-// hangs from a bail (real for front-back drilled, a placeholder for undrilled).
-const hasBail = (v: BeadVisual) => v.drill !== "top";
+// Everything but an inline (center-drilled) cabochon hangs below the string.
+const isPendant = (v: BeadVisual | null | undefined) => {
+  const a = cabochonAttachment(v);
+  return a !== null && a !== "inline";
+};
+// Wire-hung pendants have no ring; the rest hang from a bail (real, or a
+// placeholder standing in for the setting an undrilled stone still needs).
+const hasBail = (v: BeadVisual) => cabochonAttachment(v) !== "wire";
 
 const beadLengthMm = (m: Material | undefined) =>
   isPendant(m?.visual)
@@ -963,10 +968,13 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 const stoneL = visual.length_mm * pxPerMm;
                 const bail = hasBail(visual);
                 const bailR = bail ? (CABOCHON_BAIL_MM / 2) * pxPerMm : 0;
-                // Undrilled stones have no hardware yet — a dashed bail marks
-                // the setting or glue-on bail they still need.
-                const bailDash = visual.drill === "none";
+                // Undrilled (or unrecorded) stones have no hardware yet — a
+                // dashed amber bail marks the setting they still need.
+                const bailDash = cabochonAttachment(visual) === "placeholder";
                 const stoneTop = bail ? bailR * 1.6 : 0;
+                const drillNote = visual.drill
+                  ? DRILL_LABELS[visual.drill]
+                  : "Drill type not recorded — set it in Inventory";
                 return (
                   <g
                     key={p.index}
@@ -978,6 +986,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                     onPointerDown={(e) => handleBeadPointerDown(p.index, e)}
                     className="cursor-grab active:cursor-grabbing"
                   >
+                    <title>{`${p.material?.name ?? "Cabochon"} · ${drillNote}`}</title>
                     {selected && (
                       <rect
                         x={-stoneW / 2 - 1.5}
@@ -995,7 +1004,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                         cy={bailR * 0.6}
                         r={bailR}
                         fill="none"
-                        stroke="#9ca3af"
+                        stroke={bailDash ? "#d97706" : "#9ca3af"}
                         strokeWidth={Math.max(1, bailR * 0.35)}
                         strokeDasharray={bailDash ? `${bailR * 0.7} ${bailR * 0.5}` : undefined}
                       />
@@ -1332,6 +1341,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                       {m.quantity} in stock · ${m.unit_cost.toFixed(3)}/ea
                       {m.visual?.shape === "chain" && (
                         <span className="text-purple-600"> · adds 1&quot; per click</span>
+                      )}
+                      {cabochonAttachment(m.visual) === "placeholder" && (
+                        <span className="text-amber-600"> · needs setting</span>
                       )}
                     </span>
                   </span>

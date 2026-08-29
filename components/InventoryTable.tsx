@@ -71,6 +71,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
   const [edit, setEdit] = useState<{ material: Material; form: EditDraft } | null>(null);
   const [regenVisual, setRegenVisual] = useState(false);
   const regenTouched = useRef(false);
+  const drillTouched = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -163,6 +164,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
     });
     setRegenVisual(false);
     regenTouched.current = false;
+    drillTouched.current = false;
     setError("");
   };
 
@@ -198,24 +200,32 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
         unit_type: edit.form.unit_type.trim() || "piece",
         quantity,
       });
-      const cabVisual =
-        edit.material.visual?.shape === "cabochon" ? edit.material.visual : null;
       const drill: DrillType | null = edit.form.drill || null;
       let regenError: string | null = null;
+      let visualWritten = false;
       if (regenVisual) {
         try {
           const visual = await generateVisualForName(edit.material.id, name);
           if (visual) {
-            // A hand-set drill type outranks whatever the name implied.
-            await updateMaterial(edit.material.id, {
-              visual: cabVisual ? { ...visual, drill } : visual,
-            });
+            // drill only belongs on cabochons; a drill the user actually set
+            // outranks the model's guess, an untouched select doesn't.
+            const next =
+              visual.shape !== "cabochon"
+                ? { ...visual, drill: null }
+                : drillTouched.current
+                  ? { ...visual, drill }
+                  : visual;
+            await updateMaterial(edit.material.id, { visual: next });
+            visualWritten = true;
           }
         } catch (e) {
           regenError = e instanceof Error ? e.message : "unknown error";
         }
-      } else if (cabVisual && drill !== (cabVisual.drill ?? null)) {
-        await updateMaterial(edit.material.id, { visual: { ...cabVisual, drill } });
+      }
+      // A drill change must land even if the regen failed or returned nothing.
+      const prior = edit.material.visual;
+      if (!visualWritten && prior?.shape === "cabochon" && drill !== (prior.drill ?? null)) {
+        await updateMaterial(edit.material.id, { visual: { ...prior, drill } });
       }
       setEdit(null);
       if (regenError) {
@@ -577,7 +587,10 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   Drill
                   <select
                     value={edit.form.drill}
-                    onChange={(e) => setDraft({ drill: e.target.value as DrillType | "" })}
+                    onChange={(e) => {
+                      drillTouched.current = true;
+                      setDraft({ drill: e.target.value as DrillType | "" });
+                    }}
                     disabled={busy}
                     aria-label="Drill type"
                     className="px-2 py-1 text-xs border border-gray-300 rounded disabled:bg-gray-100"
