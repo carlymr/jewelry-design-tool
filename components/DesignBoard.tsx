@@ -1327,7 +1327,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 <button
                   onClick={() => addBead(m.id)}
                   className="flex items-center gap-3 flex-1 text-left min-w-0"
-                  title="Add to strand"
+                  title={
+                    m.source?.variation
+                      ? `Add to strand · ${m.source.variation}`
+                      : "Add to strand"
+                  }
                 >
                   <span className="w-9 flex justify-center shrink-0">
                     <BeadSwatch visual={m.visual} size={32} seed={m.id} />

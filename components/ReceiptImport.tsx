@@ -6,27 +6,43 @@ import { useRef, useState } from "react";
 import { Upload, Eye, Trash2 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import { apiHeaders } from "@/lib/auth";
-import { addMaterials } from "@/lib/materials";
+import { importMaterials } from "@/lib/materials";
+import { archiveReceipt, updateOrder, upsertOrder } from "@/lib/orders";
 import { uploadForProcessing } from "@/lib/photo-upload";
-import type { ExtractedItem } from "@/lib/types";
+import type { ExtractedItem, ExtractedOrder } from "@/lib/types";
 
 interface Props {
   onImported: () => Promise<void>;
 }
+
+const EMPTY_ORDER: ExtractedOrder = {
+  platform: "",
+  seller: "",
+  order_number: "",
+  order_date: null,
+  total: null,
+};
 
 export default function ReceiptImport({ onImported }: Props) {
   const [processing, setProcessing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
   const [items, setItems] = useState<ExtractedItem[]>([]);
+  const [order, setOrder] = useState<ExtractedOrder | null>(null);
   const [notes, setNotes] = useState<string | null>(null);
+  const [summary, setSummary] = useState<string | null>(null);
+  // The uploaded file is kept so it can be archived with the order at import.
+  const fileRef = useRef<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processReceipt = async (file: File) => {
     setProcessing(true);
     setError("");
     setItems([]);
+    setOrder(null);
     setNotes(null);
+    setSummary(null);
+    fileRef.current = file;
 
     try {
       // Validate/downscale/upload directly to Supabase Storage, then hand
@@ -45,6 +61,7 @@ export default function ReceiptImport({ onImported }: Props) {
       }
 
       setItems(result.items ?? []);
+      setOrder(result.order ?? null);
       setNotes(result.notes ?? null);
       if ((result.items ?? []).length === 0 && !result.notes) {
         setNotes("No jewelry materials were found on this receipt.");
@@ -68,20 +85,51 @@ export default function ReceiptImport({ onImported }: Props) {
     setImporting(true);
     setError("");
     try {
-      await addMaterials(
+      // The order row comes first so every material can point at it; the
+      // receipt file is archived under it afterwards (a failed archive
+      // shouldn't lose the import — the order just has no file link).
+      const orderRow = await upsertOrder({
+        platform: order?.platform?.trim() || "Unknown",
+        seller: order?.seller?.trim() ?? "",
+        order_number:
+          order?.order_number?.trim() || `receipt-${new Date().toISOString().slice(0, 10)}`,
+        order_date: order?.order_date || null,
+        total: order?.total ?? null,
+        receipt_path: null,
+      });
+      const result = await importMaterials(
         items.map((item) => ({
           name: item.name,
           category: item.category,
           unit_cost: item.unit_cost,
           quantity: item.estimated_units,
           unit_type: item.unit_type,
-          supplier: "",
+          supplier: order?.seller ?? "",
           visual: item.visual ?? null,
-        }))
+          source: item.source,
+        })),
+        orderRow.id
       );
+      let archiveNote = "";
+      const file = fileRef.current;
+      if (file) {
+        try {
+          const path = await archiveReceipt(orderRow.id, file, file.type);
+          await updateOrder(orderRow.id, { receipt_path: path });
+        } catch (e) {
+          archiveNote = ` Receipt file wasn't archived: ${e instanceof Error ? e.message : "unknown error"}.`;
+        }
+      }
       await onImported();
+      setSummary(
+        `Imported ${result.inserted} new and updated ${result.updated} existing material${
+          result.updated === 1 ? "" : "s"
+        } from ${orderRow.platform}${orderRow.seller ? ` / ${orderRow.seller}` : ""} order ${orderRow.order_number}.${archiveNote}`
+      );
       setItems([]);
+      setOrder(null);
       setNotes(null);
+      fileRef.current = null;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to import materials");
     } finally {
@@ -137,6 +185,48 @@ export default function ReceiptImport({ onImported }: Props) {
           <div className="border border-gray-300 rounded-lg p-4 bg-white min-h-64">
             {items.length > 0 ? (
               <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2 text-xs bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <label className="flex flex-col gap-0.5 text-gray-500">
+                    Platform
+                    <input
+                      type="text"
+                      value={order?.platform ?? ""}
+                      onChange={(e) => setOrder({ ...(order ?? EMPTY_ORDER), platform: e.target.value })}
+                      className="px-2 py-1 border border-gray-300 rounded text-sm text-gray-900"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-gray-500">
+                    Seller
+                    <input
+                      type="text"
+                      value={order?.seller ?? ""}
+                      onChange={(e) => setOrder({ ...(order ?? EMPTY_ORDER), seller: e.target.value })}
+                      className="px-2 py-1 border border-gray-300 rounded text-sm text-gray-900"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-gray-500">
+                    Order #
+                    <input
+                      type="text"
+                      value={order?.order_number ?? ""}
+                      onChange={(e) =>
+                        setOrder({ ...(order ?? EMPTY_ORDER), order_number: e.target.value })
+                      }
+                      className="px-2 py-1 border border-gray-300 rounded text-sm text-gray-900"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-gray-500">
+                    Date
+                    <input
+                      type="date"
+                      value={order?.order_date ?? ""}
+                      onChange={(e) =>
+                        setOrder({ ...(order ?? EMPTY_ORDER), order_date: e.target.value || null })
+                      }
+                      className="px-2 py-1 border border-gray-300 rounded text-sm text-gray-900"
+                    />
+                  </label>
+                </div>
                 {items.map((item, index) => (
                   <div
                     key={index}
@@ -180,6 +270,11 @@ export default function ReceiptImport({ onImported }: Props) {
                         • {item.quantity_purchased} • ${item.total_price.toFixed(2)} total
                       </span>
                     </div>
+                    {item.source?.variation && (
+                      <div className="text-xs text-gray-400 mt-0.5 truncate" title={item.source.listing_title}>
+                        {item.source.variation}
+                      </div>
+                    )}
                     <div className="mt-2 flex items-center gap-2 text-gray-700">
                       <label className="text-xs text-gray-500">Units:</label>
                       <input
@@ -218,7 +313,7 @@ export default function ReceiptImport({ onImported }: Props) {
               <div className="flex items-center justify-center h-full min-h-56 text-gray-500">
                 <div className="text-center">
                   <Eye className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>{notes ?? "Extracted materials will appear here after processing"}</p>
+                  <p>{summary ?? notes ?? "Extracted materials will appear here after processing"}</p>
                 </div>
               </div>
             )}

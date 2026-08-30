@@ -58,6 +58,26 @@ const ExtractedItemSchema = z.object({
     .describe("Estimated individual usable units for this variant (bead count, inches, etc.)"),
   unit_type: z.string().describe("Unit of measure: piece, inch, gram, etc."),
   unit_cost: z.number().describe("Price per unit: total_price / estimated_units"),
+  source: z
+    .object({
+      listing_title: z
+        .string()
+        .describe("The line item's title exactly as printed on the receipt (no cleanup)"),
+      variation: z
+        .string()
+        .nullable()
+        .describe(
+          'Variation / personalization / selection text exactly as printed, e.g. "Iron Tiger Eye Gemstone: IR3896 30X24X5MM43CT" or "Length: 6MM 7.5\" · Qty Package: 1"; null when the line has none'
+        ),
+      line_price: z
+        .number()
+        .describe("Price paid for the whole line after discounts (equals total_price for an unsplit line)"),
+      page: z
+        .number()
+        .nullable()
+        .describe("1-based page of the receipt the line appears on; null if unknown"),
+    })
+    .describe("Provenance: what the receipt actually said, so the item can be traced back later"),
   visual: BeadVisualSchema.nullable().describe(
     "Visual spec for anything that can sit on a strand: beads, spacers, chains, clasps, jump rings, connectors, and cabochons. Use the product photos on the receipt when present — especially for color and finish. Null only for items that never appear on a strand (wire, cord, thread, tools)."
   ),
@@ -90,7 +110,25 @@ function normalizeCategory(raw: string): string {
   return CATEGORY_SYNONYMS[key] ?? CATEGORY_SYNONYMS[key.replace(/s$/, "")] ?? "Other";
 }
 
+const OrderSchema = z.object({
+  platform: z
+    .string()
+    .describe('Marketplace or store: "Etsy", "Amazon", "Fire Mountain Gems", or the store name'),
+  seller: z
+    .string()
+    .describe("Shop / seller name on a marketplace order (e.g. the Etsy shop); empty string for a direct store"),
+  order_number: z.string().describe("Order or invoice number exactly as printed"),
+  order_date: z
+    .string()
+    .nullable()
+    .describe("Order date as YYYY-MM-DD, or null if not shown"),
+  total: z.number().nullable().describe("Order total actually charged, or null"),
+});
+
 const ReceiptExtractionSchema = z.object({
+  order: OrderSchema.nullable().describe(
+    "The order this receipt documents; null only if the document has no order header at all"
+  ),
   items: z.array(ExtractedItemSchema),
   notes: z
     .string()
@@ -127,6 +165,10 @@ PENDANT BLANKS, BEZEL SETTINGS, AND BAILS:
 - Bails (pinch bails, pendant bails, leaf/flower/branch bails) are Findings named finish + "Pinch Bail" + size/style: "Rhodium Sterling Silver Pinch Bail Small Branch".
 - The Etsy quantity is almost always 1 for these; the real count is in the variation ("Select Pieces: 5 pcs", "Number of Settings: 5", "quantity: 10 pieces") or a leading number in the title ("10 Hexagonal Charms"). Use it for estimated_units.
 - A setting sold WITH a glass cabochon is still one item (the setting); mention the included stone in notes.
+
+PROVENANCE — fill in for every item, and the order header:
+- order: platform, shop/seller, order number, date (YYYY-MM-DD), and the total charged. Multi-shop marketplace checkouts print one shop per receipt: use that shop's order number and its own total, not the combined purchase.
+- source.listing_title and source.variation are verbatim copies of what the receipt shows — do not normalize them; they're how a stone gets traced back to its listing later. source.line_price is the discounted price for the whole line (an assortment split into variants carries the same line_price on each variant, with total_price being the variant's share). source.page is the receipt page the line is printed on.
 
 NON-SUPPLY LINES:
 - Finished jewelry (a completed necklace, bracelet, or pendant-on-chain sold ready to wear) is not a material: category "Other", and flag it in notes.
