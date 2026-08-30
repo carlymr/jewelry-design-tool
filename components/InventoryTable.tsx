@@ -731,14 +731,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                     <BeadSwatch visual={material.visual} size={22} seed={material.id} />
                   )}
                 </span>
-                <span className="min-w-0 wrap-break-word leading-snug">
-                  {material.name}
-                  {material.source?.variation && (
-                    <span className="block text-xs text-gray-400 font-mono truncate" title={material.source.variation}>
-                      {material.source.variation}
-                    </span>
-                  )}
-                </span>
+                <span className="min-w-0 wrap-break-word leading-snug">{material.name}</span>
               </div>
               <div className="col-span-4 md:col-span-2 text-xs md:text-sm text-gray-600">
                 {material.category}

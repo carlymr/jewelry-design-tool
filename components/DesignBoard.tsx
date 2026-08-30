@@ -827,11 +827,6 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           </span>
           <span className="min-w-0">
             <span className="block text-sm text-gray-900 leading-snug">{m.name}</span>
-            {m.source?.variation && (
-              <span className="block text-xs text-gray-400 font-mono truncate">
-                {m.source.variation}
-              </span>
-            )}
             <span className="block text-xs text-gray-500">
               {m.quantity} in stock · ${m.unit_cost.toFixed(3)}/ea
               {m.visual?.shape === "chain" && (
