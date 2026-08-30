@@ -693,7 +693,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                       setDraft({ outline: e.target.value as CabOutline | "" });
                     }}
                     disabled={busy}
-                    aria-label="Face shape"
+                    aria-label={edit.material.visual?.shape === "bezel" ? "Recess shape" : "Face shape"}
                     className="px-2 py-1 text-xs border border-gray-300 rounded disabled:bg-gray-100"
                   >
                     <option value="">Not recorded (oval)</option>

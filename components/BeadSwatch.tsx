@@ -82,6 +82,12 @@ function polygonPoints(n: number, L: number, W: number): [number, number][] {
   });
 }
 
+/** Teardrop pointing toward x=0, shared by teardrop beads and cabochons. */
+function teardropPath(L: number, W: number): string {
+  const r = W * 0.35;
+  return `M 0 ${W / 2} Q ${L * 0.35} ${W * 0.04} ${L * 0.7} ${W / 2 - r} A ${r} ${r} 0 1 1 ${L * 0.7} ${W / 2 + r} Q ${L * 0.35} ${W * 0.96} 0 ${W / 2} Z`;
+}
+
 /** Closed SVG path for a cabochon face (or bezel recess) outline filling the
  * L×W box. `rand` only matters for the irregular outlines. */
 export function outlinePath(
@@ -104,13 +110,11 @@ export function outlinePath(
         [L, W],
       ]);
     case "pentagon":
-      return poly(polygonPoints(5, L, W));
+      return poly(fillBounds(polygonPoints(5, L, W), L, W));
     case "hexagon":
-      return poly(polygonPoints(6, L, W));
-    case "teardrop": {
-      const r = W * 0.35;
-      return `M 0 ${W / 2} Q ${L * 0.35} ${W * 0.04} ${L * 0.7} ${W / 2 - r} A ${r} ${r} 0 1 1 ${L * 0.7} ${W / 2 + r} Q ${L * 0.35} ${W * 0.96} 0 ${W / 2} Z`;
-    }
+      return poly(fillBounds(polygonPoints(6, L, W), L, W));
+    case "teardrop":
+      return teardropPath(L, W);
     case "marquise":
       return `M 0 ${W / 2} Q ${L / 2} ${-W * 0.5} ${L} ${W / 2} Q ${L / 2} ${W * 1.5} 0 ${W / 2} Z`;
     case "trapiche":
@@ -196,8 +200,7 @@ function shapeElement(visual: BeadVisual, L: number, W: number, rand: () => numb
       return { el: (props: ShapeProps) => <polygon points={pts} {...props} /> };
     }
     case "teardrop": {
-      const r = W * 0.35;
-      const d = `M 0 ${W / 2} Q ${L * 0.35} ${W * 0.04} ${L * 0.7} ${W / 2 - r} A ${r} ${r} 0 1 1 ${L * 0.7} ${W / 2 + r} Q ${L * 0.35} ${W * 0.96} 0 ${W / 2} Z`;
+      const d = teardropPath(L, W);
       return { el: (props: ShapeProps) => <path d={d} {...props} /> };
     }
     case "chip":
@@ -236,7 +239,8 @@ function componentElement(
   visual: BeadVisual,
   L: number,
   W: number,
-  paint: string
+  paint: string,
+  seed: string
 ): React.ReactNode | null {
   switch (visual.shape) {
     case "chain": {
@@ -358,7 +362,7 @@ function componentElement(
       // back to the filled bead pipeline and look like a cabochon.
       const sw = Math.min(Math.max(1, Math.min(L, W) * 0.12), Math.min(L, W) * 0.3);
       // The rim follows the recess outline, inset so the stroke stays in the box.
-      const d = outlinePath(visual.outline, L - sw, W - sw, seededRandom("bezel"));
+      const d = outlinePath(visual.outline, L - sw, W - sw, seededRandom(seed + "bezel"));
       const lip = Math.max(0.05, 1 - (sw * 2.8) / Math.min(L, W));
       return (
         <g fill="none" stroke={paint} transform={`translate(${sw / 2}, ${sw / 2})`}>
@@ -486,7 +490,7 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead" }: BeadP
       </radialGradient>
     );
 
-  const component = componentElement(visual, L, W, `url(#${gradId})`);
+  const component = componentElement(visual, L, W, `url(#${gradId})`, seed);
   if (component) {
     return (
       <g>
