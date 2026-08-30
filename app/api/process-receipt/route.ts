@@ -62,12 +62,12 @@ const ExtractedItemSchema = z.object({
     .object({
       listing_title: z
         .string()
-        .describe("The line item's title exactly as printed on the receipt (no cleanup)"),
+        .describe("The line item's title as printed on the receipt (no cleanup; first 120 characters are enough)"),
       variation: z
         .string()
         .nullable()
         .describe(
-          'Variation / personalization / selection text exactly as printed, e.g. "Iron Tiger Eye Gemstone: IR3896 30X24X5MM43CT" or "Length: 6MM 7.5\" · Qty Package: 1"; null when the line has none'
+          'Variation / personalization / selection text exactly as printed, e.g. "Iron Tiger Eye Gemstone: IR3896 30X24X5MM43CT" or "Length: 6MM 7.5\" · Qty Package: 1" (first 120 characters); null when the line has none'
         ),
       line_price: z
         .number()
@@ -266,18 +266,23 @@ export async function POST(request: NextRequest) {
         };
 
     const client = new Anthropic();
-    const response = await client.messages.parse({
-      model: "claude-opus-4-8",
-      max_tokens: 16000,
-      thinking: { type: "adaptive" },
-      messages: [
-        {
-          role: "user",
-          content: [fileBlock, { type: "text", text: EXTRACTION_PROMPT }],
-        },
-      ],
-      output_config: { format: zodOutputFormat(ReceiptExtractionSchema) },
-    });
+    // Streamed so the SDK's 10-minute non-streaming cap doesn't bound
+    // max_tokens: adaptive thinking plus a 40-line receipt's verbatim
+    // provenance overflowed a non-streaming budget and truncated the JSON.
+    const response = await client.messages
+      .stream({
+        model: "claude-opus-4-8",
+        max_tokens: 64000,
+        thinking: { type: "adaptive" },
+        messages: [
+          {
+            role: "user",
+            content: [fileBlock, { type: "text", text: EXTRACTION_PROMPT }],
+          },
+        ],
+        output_config: { format: zodOutputFormat(ReceiptExtractionSchema) },
+      })
+      .finalMessage();
 
     if (response.stop_reason === "refusal") {
       return NextResponse.json(
@@ -286,7 +291,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const parsed = response.parsed_output;
+    const text = response.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("");
+    let parsed: z.infer<typeof ReceiptExtractionSchema> | null = null;
+    try {
+      parsed = ReceiptExtractionSchema.parse(JSON.parse(text));
+    } catch {
+      parsed = null;
+    }
     if (!parsed) {
       return NextResponse.json(
         { error: "Could not parse a structured result from the model." },
