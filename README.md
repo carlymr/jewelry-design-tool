@@ -46,12 +46,12 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 ### 1. Supabase
 
 1. Create a project at [supabase.com](https://supabase.com/dashboard).
-2. In the SQL Editor, run migrations `0001` through `0005` in order — **do not run `0006` yet** (see below). `0007`–`0008` (orders / receipt archive / provenance triggers) are independent of the auth lockdown and can run right after `0005`.
+2. In the SQL Editor, run every migration in `supabase/migrations/` in numeric order — **except `0006`, which you skip for now** (see below). Everything else is independent of the auth lockdown.
 3. From **Project Settings → API**, copy the project URL and publishable key.
 
 > **`0006_user_scoping_lockdown.sql` comes last, after everything else works**: sign in once, backfill any legacy rows to your user id (instructions in the file), then run it — it removes anonymous access. Its `SET NOT NULL` fails loudly if legacy rows were missed, so running it early errors rather than stranding data.
 >
-> Full first-time order: migrations `0001`–`0005`, `0007`–`0008` → env vars → Google sign-in config → run the app and sign in → backfill → `0006`.
+> Full first-time order: all migrations except `0006` → env vars → Google sign-in config → run the app and sign in → backfill → `0006`.
 
 ### Google sign-in
 
