@@ -54,6 +54,8 @@ export const COMPONENT_SHAPES = [
   "figure-eight",
   "triangle",
   "cabochon",
+  "bezel",
+  "bail",
 ] as const;
 
 export const VISUAL_SHAPES = [...BEAD_SHAPES, ...COMPONENT_SHAPES] as const;
@@ -69,15 +71,17 @@ export const DRILL_LABELS: Record<DrillType, string> = {
   center: "Center-drilled (strings inline)",
 };
 
-/** How a cabochon attaches to the strand, derived from its drill type. An
- * unrecorded drill counts as needing hardware: stone-shop cabs are undrilled
+/** How a pendant-style element attaches to the strand. Bezel settings hang
+ * from their own loop; cabochons depend on their drill type — an unrecorded
+ * drill counts as needing hardware, because stone-shop cabs are undrilled
  * unless something says otherwise, so "unknown" should look like "needs
- * attention" rather than like a confirmed pinch-bail hole. Null for
- * anything that isn't a cabochon. */
-export type CabochonAttachment = "bail" | "placeholder" | "wire" | "inline";
-export function cabochonAttachment(
+ * attention" rather than like a confirmed pinch-bail hole. "inline" is a
+ * center-drilled cab strung like a bead; null is anything else. */
+export type PendantAttachment = "bail" | "placeholder" | "wire" | "inline";
+export function pendantAttachment(
   v: BeadVisual | null | undefined
-): CabochonAttachment | null {
+): PendantAttachment | null {
+  if (v?.shape === "bezel") return "wire";
   if (v?.shape !== "cabochon") return null;
   switch (v.drill) {
     case "center":
@@ -95,7 +99,7 @@ export const BeadVisualSchema = z.object({
   shape: z
     .enum(VISUAL_SHAPES)
     .describe(
-      "Closest basic shape. Beads: use 'chip' or 'nugget' for irregular stones, 'octagon' for cornerless/faceted cubes, 'flower' for carved flower beads. Components: 'chain' for link chain, 'jump-ring' for plain rings, 'lobster-clasp' for lobster/spring clasps, 'toggle-clasp' for toggle ring-and-bar clasps, 'connector' for straight bars with a loop at each end, 'figure-eight' for infinity links and double-ring connectors, 'triangle' for triangle charms and open geometric connectors, 'cabochon' for flat-backed focal stones (drawn hanging as a pendant)."
+      "Closest basic shape. Beads: use 'chip' or 'nugget' for irregular stones, 'octagon' for cornerless/faceted cubes, 'flower' for carved flower beads. Components: 'chain' for link chain, 'jump-ring' for plain rings, 'lobster-clasp' for lobster/spring clasps, 'toggle-clasp' for toggle ring-and-bar clasps, 'connector' for straight bars with a loop at each end, 'figure-eight' for infinity links and double-ring connectors, 'triangle' for triangle charms and open geometric connectors, 'cabochon' for flat-backed focal stones (drawn hanging as a pendant), 'bezel' for pendant blanks / bezel settings / cabochon bases (sized by the recess — the stone it fits — not the outer frame), 'bail' for pinch bails and pendant bails."
     ),
   length_mm: z
     .number()

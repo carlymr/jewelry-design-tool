@@ -152,7 +152,8 @@ function shapeElement(visual: BeadVisual, L: number, W: number, rand: () => numb
  * metal shapes — strokes and bars, not filled silhouettes — so they bypass
  * the gradient/pattern/facet pipeline and draw themselves directly. Returns
  * null for bead shapes. Cabochons deliberately fall through to the bead
- * pipeline: a flat-backed stone reads exactly like a large domed oval. */
+ * pipeline: a flat-backed stone reads exactly like a large domed oval.
+ * Bezels and bails are open metal like the rest and draw here. */
 function componentElement(
   visual: BeadVisual,
   L: number,
@@ -269,6 +270,43 @@ function componentElement(
         <g fill="none" stroke={paint} strokeWidth={sw}>
           <ellipse cx={L * 0.25} cy={W / 2} rx={rx} ry={ry} />
           <ellipse cx={L * 0.75} cy={W / 2} rx={rx} ry={ry} />
+        </g>
+      );
+    }
+    case "bezel": {
+      // Empty setting: the bezel wall as a thick outer rim with a thin inner
+      // lip, sized to the recess so it reads as the frame a cab drops into.
+      // Rim clamped so the recess always exists — a null here would fall
+      // back to the filled bead pipeline and look like a cabochon.
+      const sw = Math.min(Math.max(1, Math.min(L, W) * 0.12), Math.min(L, W) * 0.3);
+      const rx = L / 2 - sw / 2;
+      const ry = W / 2 - sw / 2;
+      return (
+        <g fill="none" stroke={paint}>
+          {/* a faint fill in the well keeps it from reading as a jump ring */}
+          <ellipse cx={L / 2} cy={W / 2} rx={rx} ry={ry} fill={paint} fillOpacity={0.18} strokeWidth={sw} />
+          <ellipse
+            cx={L / 2}
+            cy={W / 2}
+            rx={Math.max(0.5, rx - sw * 1.4)}
+            ry={Math.max(0.5, ry - sw * 1.4)}
+            strokeWidth={Math.max(0.4, sw * 0.35)}
+            opacity={0.7}
+          />
+        </g>
+      );
+    }
+    case "bail": {
+      // Pinch bail: a loop on top with two prongs pinching down to a point.
+      const r = Math.max(0.8, Math.min(L * 0.42, W * 0.3));
+      const sw = Math.max(0.8, r * 0.45);
+      return (
+        <g fill="none" stroke={paint} strokeWidth={sw} strokeLinecap="round">
+          <circle cx={L / 2} cy={r + sw / 2} r={r} />
+          <path
+            d={`M ${L / 2 - r * 0.9} ${r * 2} Q ${L * 0.15} ${W * 0.7} ${L / 2} ${W - sw}
+                Q ${L * 0.85} ${W * 0.7} ${L / 2 + r * 0.9} ${r * 2}`}
+          />
         </g>
       );
     }
