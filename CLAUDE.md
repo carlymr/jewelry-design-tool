@@ -15,7 +15,7 @@ There is no test suite or lint config yet. Node 24 is required (`.nvmrc`); supab
 
 ## What this is
 
-Virtual beading board + materials inventory + AI receipt processing for a strung-jewelry business. Extracted from an earlier Claude-artifact prototype.
+Virtual beading board + materials inventory (with order provenance) + AI receipt processing for a strung-jewelry business. Extracted from an earlier Claude-artifact prototype.
 
 Auth is Supabase Google OAuth: `components/AuthGate.tsx` gates the whole app and provides the session via context; `lib/auth.ts` wraps supabase-js auth and builds API-route headers. Materials and designs are scoped per-user (`user_id`). Migration `0005` is the zero-downtime transition (legacy null-owner rows stay visible; a trigger freezes `user_id` so nobody can claim or release rows); `0006` is the lockdown — apply it only after backfilling legacy rows to their owner, per the comments in the file. 0006 also restricts the `receipts` Storage bucket to authenticated users. API routes verify the Supabase JWT via a GoTrue `fetch` (no supabase-js server-side) and accept nothing else.
 
@@ -35,9 +35,11 @@ Two independent data paths:
 
 1. **Inventory + designs CRUD** — browser talks to Supabase directly via `supabase-js` (`lib/materials.ts`, `lib/designs.ts` → `lib/supabase.ts`). No API routes involved; even generated visuals are written by the client after the API route returns them. RLS scopes rows to `auth.uid()`; inserts stamp `user_id` client-side until the 0006 lockdown adds a DB default.
 
+   Provenance (GRA-30): every receipt import upserts an `orders` row (unique per user + platform + order number, so re-uploads update rather than duplicate) and archives the file in the owner-scoped `receipt-archive` bucket (`{user_id}/{order_id}.ext`); materials carry `order_id` + `source` (verbatim listing title, variation/selection text, line price, page). `importMaterials()` in `lib/materials.ts` matches existing rows by the receipt's listing first (same order + verbatim title/variation — stable across re-extractions, name-aware for assortment variants), then by name, and updates in place — designs reference materials by id, so ids must survive a re-import; a row from a *different* order is a re-order and its count is added instead of replaced. A trigger (0008) stops a material from pointing at another user's order.
+
 2. **Receipt processing** — three hops, shaped by two hard constraints:
    - Client uploads the file **directly to the private `receipts` Storage bucket** (`components/ReceiptImport.tsx`), because Vercel serverless functions cap request bodies at ~4.5MB. Never route file uploads through an API route.
-   - `app/api/process-receipt/route.ts` receives only the storage path, downloads the file, sends it to Claude (`claude-opus-4-8` via `client.messages.parse` with a Zod schema / structured outputs), and **deletes the file in a `finally` block** — receipts are transient, the bucket should stay empty.
+   - `app/api/process-receipt/route.ts` receives only the storage path, downloads the file, sends it to Claude (`claude-opus-4-8` via `client.messages.parse` with a Zod schema / structured outputs), and **deletes the file in a `finally` block** — the `receipts` bucket is transient and should stay empty. The archived copy is a separate client-side upload to `receipt-archive` at import time (the browser still holds the file), never something the route does.
    - The route uses the **Storage REST API via `fetch`, not supabase-js** — supabase-js requires a native WebSocket at construction, which breaks on older Node server-side. Keep it that way.
    - Storage calls run with the **caller's session token, not a service key** — the `receipts` bucket has been authenticated-only RLS since migration 0006, and the routes hold no admin credential. `isAuthorized()` validates the forwarded JWT before it's reused for storage. (`analyze-photo` follows the same pattern; bead-photo uploads reuse the receipts bucket and inherit its RLS and size/type limits.)
 

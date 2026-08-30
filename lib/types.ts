@@ -10,6 +10,33 @@ export const CATEGORIES = [
   "Other",
 ] as const;
 
+/** Where a material came from — the listing details that identify it. */
+export interface MaterialSource {
+  listing_title: string;
+  /** Variation / personalization / selection text, e.g. "IR3896 30X24X5MM43CT". */
+  variation: string | null;
+  /** Price paid for this line after discounts. */
+  line_price: number;
+  /** Receipt page the line appears on (1-based), when known. */
+  page: number | null;
+}
+
+/** One receipt: the order it documents and where the file is archived. */
+export interface Order {
+  id: string;
+  user_id: string;
+  platform: string;
+  seller: string;
+  order_number: string;
+  order_date: string | null;
+  total: number | null;
+  receipt_path: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NewOrder = Omit<Order, "id" | "user_id" | "created_at" | "updated_at">;
+
 export interface Material {
   id: string;
   name: string;
@@ -19,6 +46,8 @@ export interface Material {
   unit_type: string;
   supplier: string;
   visual: BeadVisual | null;
+  order_id: string | null;
+  source: MaterialSource | null;
   /** Owner; null only on legacy rows created before auth (see migration 0005). */
   user_id: string | null;
   created_at: string;
@@ -27,9 +56,11 @@ export interface Material {
 
 export type NewMaterial = Omit<
   Material,
-  "id" | "created_at" | "updated_at" | "visual" | "user_id"
+  "id" | "created_at" | "updated_at" | "visual" | "user_id" | "order_id" | "source"
 > & {
   visual?: BeadVisual | null;
+  order_id?: string | null;
+  source?: MaterialSource | null;
 };
 
 /** One line item extracted from a receipt by the API route. */
@@ -42,6 +73,16 @@ export interface ExtractedItem {
   unit_type: string;
   unit_cost: number;
   visual: BeadVisual | null;
+  source: MaterialSource;
+}
+
+/** The order header the receipt route reads off a receipt. */
+export interface ExtractedOrder {
+  platform: string;
+  seller: string;
+  order_number: string;
+  order_date: string | null;
+  total: number | null;
 }
 
 /** A strand design: an ordered list of beads plus a target length. */

@@ -43,11 +43,26 @@ export async function downscaleImage(file: File): Promise<Blob> {
   });
 }
 
+/** File extension for the media types the buckets accept; anything else is
+ * rejected here rather than producing an odd object key. */
+export function extensionForMediaType(mediaType: string): string {
+  const ext: Record<string, string> = {
+    "application/pdf": "pdf",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+  };
+  const found = ext[mediaType];
+  if (!found) throw new Error(`Unsupported file type: ${mediaType}`);
+  return found;
+}
+
 /** Upload a transient blob for AI processing; returns the storage path to
  * hand the API route. Lives in the receipts bucket — same lifecycle: the
  * route deletes the file whether or not processing succeeds. */
 export async function uploadTransient(blob: Blob, mediaType: string): Promise<string> {
-  const ext = mediaType === "application/pdf" ? "pdf" : mediaType.split("/")[1];
+  const ext = extensionForMediaType(mediaType);
   const path = `${crypto.randomUUID()}.${ext}`;
   const { error } = await getSupabase()
     .storage.from("receipts")
@@ -62,12 +77,12 @@ export async function uploadTransient(blob: Blob, mediaType: string): Promise<st
 export async function uploadForProcessing(
   file: File,
   opts: { allowPdf?: boolean } = {}
-): Promise<{ path: string; mediaType: string }> {
+): Promise<{ path: string; mediaType: string; blob: Blob }> {
   if (file.size > MAX_UPLOAD_BYTES) {
     throw new Error("File is too large (max 20MB).");
   }
   if (opts.allowPdf && file.type === "application/pdf") {
-    return { path: await uploadTransient(file, file.type), mediaType: file.type };
+    return { path: await uploadTransient(file, file.type), mediaType: file.type, blob: file };
   }
   if (!file.type.startsWith("image/")) {
     throw new Error(
@@ -82,7 +97,9 @@ export async function uploadForProcessing(
     blob = await downscaleImage(file);
     mediaType = "image/jpeg";
   }
-  return { path: await uploadTransient(blob, mediaType), mediaType };
+  // The processed blob is what callers should keep (e.g. to archive): it's
+  // the version that was validated and is in an accepted format.
+  return { path: await uploadTransient(blob, mediaType), mediaType, blob };
 }
 
 /** Photo-only upload (camera buttons). */

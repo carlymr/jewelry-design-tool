@@ -12,12 +12,15 @@ import {
   Pencil,
   Check,
   X,
+  Info,
+  ExternalLink,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
 import SearchField from "@/components/SearchField";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
+import { listOrders, receiptUrl } from "@/lib/orders";
 import { generateVisualForName } from "@/lib/visuals";
 import {
   colorFamilyOf,
@@ -26,7 +29,7 @@ import {
   DRILL_LABELS,
   type DrillType,
 } from "@/lib/bead-visual";
-import { CATEGORIES, type Material, type NewMaterial } from "@/lib/types";
+import { CATEGORIES, type Material, type NewMaterial, type Order } from "@/lib/types";
 
 type SortKey = "name" | "category" | "unit_cost" | "quantity";
 
@@ -75,6 +78,34 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const csvInputRef = useRef<HTMLInputElement>(null);
+  // Provenance: which row's source panel is open, and the orders to show in it.
+  const [sourceOpenId, setSourceOpenId] = useState<string | null>(null);
+  const [orders, setOrders] = useState<Map<string, Order>>(new Map());
+  // Orders only change when materials start pointing at new ones, so key the
+  // fetch off the set of referenced order ids — not every stock edit.
+  const orderIdsKey = useMemo(
+    () => Array.from(new Set(materials.map((m) => m.order_id).filter(Boolean))).sort().join(","),
+    [materials]
+  );
+  useEffect(() => {
+    let stale = false;
+    listOrders()
+      .then((rows) => {
+        if (!stale) setOrders(new Map(rows.map((o) => [o.id, o])));
+      })
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+  }, [orderIdsKey]);
+
+  const openReceipt = async (path: string, page: number | null) => {
+    try {
+      window.open(await receiptUrl(path, page), "_blank", "noopener");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not open receipt");
+    }
+  };
 
   const sorted = useMemo(() => {
     const term = searchTerm.toLowerCase();
@@ -446,7 +477,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
           Category{sortIndicator("category")}
         </button>
         <button
-          className="col-span-2 text-left cursor-pointer hover:text-purple-600"
+          className="col-span-1 text-left cursor-pointer hover:text-purple-600"
           onClick={() => toggleSort("unit_cost")}
         >
           Cost / Unit{sortIndicator("unit_cost")}
@@ -458,7 +489,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
         >
           In Stock{sortIndicator("quantity")}
         </button>
-        <div className="col-span-1 text-center">Actions</div>
+        <div className="col-span-2 text-center">Actions</div>
       </div>
 
       <div className="md:hidden mb-2 flex items-center gap-2 text-xs text-gray-600">
@@ -531,7 +562,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                     ))}
                   </select>
                 </div>
-                <div className="col-span-6 md:col-span-2">
+                <div className="col-span-6 md:col-span-1">
                   <input
                     type="number"
                     step="0.01"
@@ -567,7 +598,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                     className="w-full px-2 py-1 text-sm border border-gray-300 rounded disabled:bg-gray-100"
                   />
                 </div>
-                <div className="col-span-4 md:col-span-1 flex justify-end md:justify-center items-center gap-1">
+                <div className="col-span-4 md:col-span-2 flex justify-end md:justify-center items-center gap-1">
                   <button
                     onClick={handleSaveEdit}
                     disabled={busy}
@@ -639,12 +670,19 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                     <BeadSwatch visual={material.visual} size={22} seed={material.id} />
                   )}
                 </span>
-                <span className="min-w-0 wrap-break-word leading-snug">{material.name}</span>
+                <span className="min-w-0 wrap-break-word leading-snug">
+                  {material.name}
+                  {material.source?.variation && (
+                    <span className="block text-xs text-gray-400 font-mono truncate" title={material.source.variation}>
+                      {material.source.variation}
+                    </span>
+                  )}
+                </span>
               </div>
               <div className="col-span-4 md:col-span-2 text-xs md:text-sm text-gray-600">
                 {material.category}
               </div>
-              <div className="col-span-4 md:col-span-2 text-xs md:text-sm text-gray-900">
+              <div className="col-span-4 md:col-span-1 text-xs md:text-sm text-gray-900">
                 ${material.unit_cost.toFixed(2)}
                 <span className="md:hidden text-gray-500">/{material.unit_type}</span>
               </div>
@@ -669,7 +707,22 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500"
                 />
               </div>
-              <div className="col-span-12 md:col-span-1 flex justify-end md:justify-center items-center gap-1">
+              <div className="col-span-12 md:col-span-2 flex justify-end md:justify-center items-center gap-1">
+                {(material.source || material.order_id) && (
+                  <button
+                    onClick={() =>
+                      setSourceOpenId(sourceOpenId === material.id ? null : material.id)
+                    }
+                    className={`p-2 md:p-1 rounded hover:text-purple-600 ${
+                      sourceOpenId === material.id ? "text-purple-600" : "text-gray-500"
+                    }`}
+                    title="Where this came from"
+                    aria-label="Show source"
+                    aria-expanded={sourceOpenId === material.id}
+                  >
+                    <Info className="w-4 h-4" />
+                  </button>
+                )}
                 <button
                   onClick={() => startEdit(material)}
                   disabled={busy || edit !== null}
@@ -696,6 +749,13 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
+              {sourceOpenId === material.id && (
+                <SourcePanel
+                  material={material}
+                  order={material.order_id ? orders.get(material.order_id) : undefined}
+                  onOpenReceipt={openReceipt}
+                />
+              )}
             </div>
           )
         )}
@@ -758,6 +818,49 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+function SourcePanel({
+  material,
+  order,
+  onOpenReceipt,
+}: {
+  material: Material;
+  order: Order | undefined;
+  onOpenReceipt: (path: string, page: number | null) => void;
+}) {
+  const src = material.source;
+  return (
+    <div className="col-span-12 mt-1 text-xs text-gray-600 bg-purple-50/60 border border-purple-100 rounded-md px-3 py-2 space-y-1">
+      {order && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className="font-medium text-gray-800">
+            {order.platform}
+            {order.seller ? ` · ${order.seller}` : ""}
+          </span>
+          <span>order {order.order_number}</span>
+          {order.order_date && <span>· {order.order_date}</span>}
+          {order.total != null && <span>· ${Number(order.total).toFixed(2)} total</span>}
+          {order.receipt_path && (
+            <button
+              onClick={() => onOpenReceipt(order.receipt_path!, src?.page ?? null)}
+              className="inline-flex items-center gap-1 text-purple-700 hover:underline"
+            >
+              <ExternalLink className="w-3 h-3" /> View receipt
+              {src?.page ? ` (p. ${src.page})` : ""}
+            </button>
+          )}
+        </div>
+      )}
+      {src && (
+        <>
+          <div className="text-gray-700">{src.listing_title}</div>
+          {src.variation && <div className="font-mono text-gray-800">{src.variation}</div>}
+          <div>${src.line_price.toFixed(2)} paid for this line</div>
+        </>
+      )}
     </div>
   );
 }

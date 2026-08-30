@@ -29,6 +29,7 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 ### Inventory
 
 - Searchable, sortable, paginated table with bead swatches, inline stock editing, and **color family / size filters**
+- **Provenance**: every imported material remembers its order (platform, seller, order number, date), the listing title and variation text exactly as the receipt showed them, and the price paid — with a link to the archived receipt. Re-uploading a receipt updates the same rows instead of duplicating them
 - **Works on a phone**: rows become cards below tablet width, with a sort dropdown standing in for the column headers
 - **Full row editing**: fix a material's name, category, cost, or unit after import (sellers mislabel stones); renaming offers to regenerate the visual from the corrected name
 - **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries, estimating bead counts from strand lengths, resolving pick-your-stone cabochon selections (the variation code/dimensions, not the generic listing title), and naming bezel settings by the stone they fit and bails by finish and size — into an editable preview before importing
@@ -45,12 +46,12 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 ### 1. Supabase
 
 1. Create a project at [supabase.com](https://supabase.com/dashboard).
-2. In the SQL Editor, run migrations `0001` through `0005` in order — **do not run `0006` yet** (see below).
+2. In the SQL Editor, run migrations `0001` through `0005` in order — **do not run `0006` yet** (see below). `0007`–`0008` (orders / receipt archive / provenance triggers) are independent of the auth lockdown and can run right after `0005`.
 3. From **Project Settings → API**, copy the project URL and publishable key.
 
 > **`0006_user_scoping_lockdown.sql` comes last, after everything else works**: sign in once, backfill any legacy rows to your user id (instructions in the file), then run it — it removes anonymous access. Its `SET NOT NULL` fails loudly if legacy rows were missed, so running it early errors rather than stranding data.
 >
-> Full first-time order: migrations `0001`–`0005` → env vars → Google sign-in config → run the app and sign in → backfill → `0006`.
+> Full first-time order: migrations `0001`–`0005`, `0007`–`0008` → env vars → Google sign-in config → run the app and sign in → backfill → `0006`.
 
 ### Google sign-in
 
@@ -110,8 +111,9 @@ lib/
   visuals.ts                   # shared name→visual API call (board + inventory)
   strand-layout.ts             # as-worn geometry (bracelet circle / necklace drape)
   photo-upload.ts              # shared downscale + transient-upload helpers
-  designs.ts / materials.ts    # Supabase CRUD
-supabase/migrations/           # schema (materials, receipts bucket, designs)
+  designs.ts / materials.ts    # Supabase CRUD (+ provenance-aware import matching)
+  orders.ts                    # order upsert, receipt archive upload + signed URLs
+supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance)
 ```
 
 Receipt extraction and visual generation both use the Anthropic structured outputs API (`client.messages.parse` with Zod schemas), so results arrive as validated JSON.
