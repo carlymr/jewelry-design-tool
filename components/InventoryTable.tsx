@@ -10,29 +10,16 @@ import {
   ChevronLeft,
   ChevronRight,
   Pencil,
-  Check,
-  X,
   Info,
-  ExternalLink,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
 import SearchField from "@/components/SearchField";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
+import MaterialDetailModal, { SourcePanel } from "@/components/MaterialDetail";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
-import { listOrders, receiptUrl } from "@/lib/orders";
-import { generateVisualForName } from "@/lib/visuals";
-import {
-  colorFamilyOf,
-  sizeBucketOf,
-  DRILL_TYPES,
-  DRILL_LABELS,
-  CAB_OUTLINES,
-  CAB_OUTLINE_LABELS,
-  hasOutline,
-  type DrillType,
-  type CabOutline,
-} from "@/lib/bead-visual";
+import { listOrders } from "@/lib/orders";
+import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
 import {
   CATEGORIES,
   presentCategories,
@@ -54,20 +41,6 @@ const EMPTY_FORM: NewMaterial = {
   supplier: "",
 };
 
-// Numeric fields stay raw text while editing — binding a parsed number back to
-// the input eats in-progress entries like "0." before the decimals are typed.
-interface EditDraft {
-  name: string;
-  category: string;
-  unit_cost: string;
-  unit_type: string;
-  quantity: string;
-  /** Cabochons only; "" = not recorded. */
-  drill: DrillType | "";
-  /** Cabochons and bezel settings; "" = not recorded (drawn as oval). */
-  outline: CabOutline | "";
-}
-
 interface Props {
   materials: Material[];
   loading: boolean;
@@ -84,11 +57,9 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
   const [page, setPage] = useState(0);
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState<NewMaterial>(EMPTY_FORM);
-  const [edit, setEdit] = useState<{ material: Material; form: EditDraft } | null>(null);
-  const [regenVisual, setRegenVisual] = useState(false);
-  const regenTouched = useRef(false);
-  const drillTouched = useRef(false);
-  const outlineTouched = useRef(false);
+  // Which material's detail modal is open (id, so a post-save refresh flows
+  // straight into the open modal instead of leaving it on a stale object).
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -113,13 +84,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
     };
   }, [orderIdsKey]);
 
-  const openReceipt = async (path: string, page: number | null) => {
-    try {
-      window.open(await receiptUrl(path, page), "_blank", "noopener");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not open receipt");
-    }
-  };
+  const detail = detailId ? materials.find((m) => m.id === detailId) ?? null : null;
 
   // Only offer types the inventory actually holds, so no choice comes back empty.
   const categoryOptions = useMemo(() => presentCategories(materials), [materials]);
@@ -198,107 +163,6 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
     if (!confirm(`Delete "${material.name}" from inventory?`)) return;
     run(() => deleteMaterial(material.id));
   };
-
-  const startEdit = (material: Material) => {
-    setEdit({
-      material,
-      form: {
-        name: material.name,
-        category: material.category,
-        unit_cost: String(material.unit_cost),
-        unit_type: material.unit_type,
-        quantity: String(material.quantity),
-        drill: material.visual?.drill ?? "",
-        outline: material.visual?.outline ?? "",
-      },
-    });
-    setRegenVisual(false);
-    regenTouched.current = false;
-    drillTouched.current = false;
-    outlineTouched.current = false;
-    setError("");
-  };
-
-  const setDraft = (patch: Partial<EditDraft>) =>
-    setEdit((e) => (e ? { ...e, form: { ...e.form, ...patch } } : e));
-
-  // A rename usually means the visual (derived from the name) is wrong too, so
-  // renaming auto-checks the regenerate box — until the user toggles it herself.
-  const handleEditName = (value: string) => {
-    setDraft({ name: value });
-    if (edit && !regenTouched.current) {
-      setRegenVisual(value.trim() !== edit.material.name);
-    }
-  };
-
-  const handleSaveEdit = () =>
-    run(async () => {
-      if (!edit) return;
-      const name = edit.form.name.trim();
-      if (!name) throw new Error("Material name is required");
-      const unit_cost = parseFloat(edit.form.unit_cost);
-      if (Number.isNaN(unit_cost) || unit_cost < 0) {
-        throw new Error("Cost must be a non-negative number");
-      }
-      const quantity = parseFloat(edit.form.quantity);
-      if (Number.isNaN(quantity) || quantity < 0) {
-        throw new Error("Stock must be a non-negative number");
-      }
-      await updateMaterial(edit.material.id, {
-        name,
-        category: edit.form.category,
-        unit_cost,
-        unit_type: edit.form.unit_type.trim() || "piece",
-        quantity,
-      });
-      const drill: DrillType | null = edit.form.drill || null;
-      const outline: CabOutline | null = edit.form.outline || null;
-      let regenError: string | null = null;
-      let visualWritten = false;
-      if (regenVisual) {
-        try {
-          const visual = await generateVisualForName(edit.material.id, name);
-          if (visual) {
-            // drill only belongs on cabochons and outline on cabochons and
-            // bezels; a value the user actually set outranks the model's
-            // guess, an untouched select doesn't.
-            const next = {
-              ...visual,
-              drill:
-                visual.shape !== "cabochon" ? null : drillTouched.current ? drill : visual.drill,
-              outline: !hasOutline(visual)
-                ? null
-                : outlineTouched.current
-                  ? outline
-                  : visual.outline ?? null,
-            };
-            await updateMaterial(edit.material.id, { visual: next });
-            visualWritten = true;
-          }
-        } catch (e) {
-          regenError = e instanceof Error ? e.message : "unknown error";
-        }
-      }
-      // A drill/outline change must land even if the regen failed or returned nothing.
-      const prior = edit.material.visual;
-      if (!visualWritten && prior) {
-        const drillChanged = prior.shape === "cabochon" && drill !== (prior.drill ?? null);
-        const outlineChanged = hasOutline(prior) && outline !== (prior.outline ?? null);
-        if (drillChanged || outlineChanged) {
-          await updateMaterial(edit.material.id, {
-            visual: {
-              ...prior,
-              drill: drillChanged ? drill : prior.drill ?? null,
-              outline: outlineChanged ? outline : prior.outline ?? null,
-            },
-          });
-        }
-      }
-      setEdit(null);
-      if (regenError) {
-        throw new Error(`Changes saved, but the visual refresh failed: ${regenError}`);
-      }
-    });
 
   // Leading =, +, -, @ would execute as formulas if the export is opened in
   // Excel/Sheets; prefix with ' to neutralize (standard CSV-injection guard).
@@ -555,172 +419,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
       </div>
 
       <div className="bg-white border md:border-t-0 rounded-lg md:rounded-t-none">
-        {paged.map((material) =>
-          edit?.material.id === material.id ? (
-            <div
-              key={material.id}
-              className="p-3 border-b border-purple-200 bg-purple-50/50 last:border-b-0"
-              onKeyDown={(e) => {
-                if (busy) return;
-                if (e.key === "Enter" && !(e.target instanceof HTMLSelectElement)) {
-                  handleSaveEdit();
-                } else if (e.key === "Escape") {
-                  setEdit(null);
-                }
-              }}
-            >
-              <div className="grid grid-cols-12 gap-x-3 gap-y-2 items-center">
-                <div className="col-span-12 md:col-span-4 flex items-center gap-2 min-w-0">
-                  <span className="w-6 flex justify-center shrink-0">
-                    {material.visual && (
-                      <BeadSwatch visual={material.visual} size={22} seed={material.id} />
-                    )}
-                  </span>
-                  <input
-                    type="text"
-                    value={edit.form.name}
-                    onChange={(e) => handleEditName(e.target.value)}
-                    disabled={busy}
-                    aria-label="Material name"
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500 disabled:bg-gray-100"
-                    autoFocus
-                  />
-                </div>
-                <div className="col-span-6 md:col-span-2">
-                  <select
-                    value={edit.form.category}
-                    onChange={(e) => setDraft({ category: e.target.value })}
-                    disabled={busy}
-                    aria-label="Category"
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded disabled:bg-gray-100"
-                  >
-                    {CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="col-span-6 md:col-span-1">
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={edit.form.unit_cost}
-                    onChange={(e) => setDraft({ unit_cost: e.target.value })}
-                    disabled={busy}
-                    aria-label="Cost per unit"
-                    placeholder="Cost"
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded disabled:bg-gray-100"
-                  />
-                </div>
-                <div className="col-span-4 md:col-span-1">
-                  <input
-                    type="text"
-                    value={edit.form.unit_type}
-                    onChange={(e) => setDraft({ unit_type: e.target.value })}
-                    disabled={busy}
-                    aria-label="Unit"
-                    placeholder="Unit"
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded disabled:bg-gray-100"
-                  />
-                </div>
-                <div className="col-span-4 md:col-span-2">
-                  <input
-                    type="number"
-                    min="0"
-                    value={edit.form.quantity}
-                    onChange={(e) => setDraft({ quantity: e.target.value })}
-                    disabled={busy}
-                    aria-label="In stock"
-                    placeholder="Stock"
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded disabled:bg-gray-100"
-                  />
-                </div>
-                <div className="col-span-4 md:col-span-2 flex justify-end md:justify-center items-center gap-1">
-                  <button
-                    onClick={handleSaveEdit}
-                    disabled={busy}
-                    className="text-green-600 hover:text-green-700 hover:bg-green-50 p-2 md:p-1 rounded disabled:opacity-40"
-                    title="Save changes"
-                    aria-label="Save changes"
-                  >
-                    <Check className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setEdit(null)}
-                    disabled={busy}
-                    className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 p-2 md:p-1 rounded disabled:opacity-40"
-                    title="Cancel"
-                    aria-label="Cancel edit"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-              <label
-                className="mt-2 ml-8 inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer"
-                title="Regenerates the swatch artwork from the corrected name"
-              >
-                <input
-                  type="checkbox"
-                  checked={regenVisual}
-                  disabled={busy}
-                  onChange={(e) => {
-                    regenTouched.current = true;
-                    setRegenVisual(e.target.checked);
-                  }}
-                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                />
-                Refresh visual from name
-                {busy && <span className="text-purple-600 font-medium">— Saving…</span>}
-              </label>
-              {edit.material.visual?.shape === "cabochon" && (
-                <label className="mt-2 ml-4 inline-flex items-center gap-1.5 text-xs text-gray-600">
-                  Drill
-                  <select
-                    value={edit.form.drill}
-                    onChange={(e) => {
-                      drillTouched.current = true;
-                      setDraft({ drill: e.target.value as DrillType | "" });
-                    }}
-                    disabled={busy}
-                    aria-label="Drill type"
-                    className="px-2 py-1 text-xs border border-gray-300 rounded disabled:bg-gray-100"
-                  >
-                    <option value="">Not recorded</option>
-                    {DRILL_TYPES.map((d) => (
-                      <option key={d} value={d}>
-                        {DRILL_LABELS[d]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {hasOutline(edit.material.visual) && (
-                <label className="mt-2 ml-4 inline-flex items-center gap-1.5 text-xs text-gray-600">
-                  Shape
-                  <select
-                    value={edit.form.outline}
-                    onChange={(e) => {
-                      outlineTouched.current = true;
-                      setDraft({ outline: e.target.value as CabOutline | "" });
-                    }}
-                    disabled={busy}
-                    aria-label={edit.material.visual?.shape === "bezel" ? "Recess shape" : "Face shape"}
-                    className="px-2 py-1 text-xs border border-gray-300 rounded disabled:bg-gray-100"
-                  >
-                    <option value="">Not recorded (oval)</option>
-                    {CAB_OUTLINES.map((o) => (
-                      <option key={o} value={o}>
-                        {CAB_OUTLINE_LABELS[o]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </div>
-          ) : (
+        {paged.map((material) => (
             <div
               key={material.id}
               className="grid grid-cols-12 gap-x-3 gap-y-1 p-3 border-b border-gray-100 hover:bg-gray-50 last:border-b-0 items-center"
@@ -778,8 +477,8 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   </button>
                 )}
                 <button
-                  onClick={() => startEdit(material)}
-                  disabled={busy || edit !== null}
+                  onClick={() => setDetailId(material.id)}
+                  disabled={busy}
                   className="text-gray-500 hover:text-purple-600 p-2 md:p-1 rounded disabled:opacity-40 disabled:hover:text-gray-500"
                   title="Edit material"
                   aria-label="Edit material"
@@ -804,15 +503,16 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 </button>
               </div>
               {sourceOpenId === material.id && (
-                <SourcePanel
-                  material={material}
-                  order={material.order_id ? orders.get(material.order_id) : undefined}
-                  onOpenReceipt={openReceipt}
-                />
+                <div className="col-span-12 mt-1">
+                  <SourcePanel
+                    material={material}
+                    order={material.order_id ? orders.get(material.order_id) : undefined}
+                    onError={setError}
+                  />
+                </div>
               )}
             </div>
-          )
-        )}
+        ))}
 
         {!loading && sorted.length === 0 && (
           <div className="text-center py-8 text-gray-500">
@@ -872,48 +572,14 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
           </span>
         )}
       </div>
-    </div>
-  );
-}
 
-function SourcePanel({
-  material,
-  order,
-  onOpenReceipt,
-}: {
-  material: Material;
-  order: Order | undefined;
-  onOpenReceipt: (path: string, page: number | null) => void;
-}) {
-  const src = material.source;
-  return (
-    <div className="col-span-12 mt-1 text-xs text-gray-600 bg-purple-50/60 border border-purple-100 rounded-md px-3 py-2 space-y-1">
-      {order && (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          <span className="font-medium text-gray-800">
-            {order.platform}
-            {order.seller ? ` · ${order.seller}` : ""}
-          </span>
-          <span>order {order.order_number}</span>
-          {order.order_date && <span>· {order.order_date}</span>}
-          {order.total != null && <span>· ${Number(order.total).toFixed(2)} total</span>}
-          {order.receipt_path && (
-            <button
-              onClick={() => onOpenReceipt(order.receipt_path!, src?.page ?? null)}
-              className="inline-flex items-center gap-1 text-purple-700 hover:underline"
-            >
-              <ExternalLink className="w-3 h-3" /> View receipt
-              {src?.page ? ` (p. ${src.page})` : ""}
-            </button>
-          )}
-        </div>
-      )}
-      {src && (
-        <>
-          <div className="text-gray-700">{src.listing_title}</div>
-          {src.variation && <div className="font-mono text-gray-800">{src.variation}</div>}
-          <div>${src.line_price.toFixed(2)} paid for this line</div>
-        </>
+      {detail && (
+        <MaterialDetailModal
+          material={detail}
+          onClose={() => setDetailId(null)}
+          onChanged={onChanged}
+          onError={setError}
+        />
       )}
     </div>
   );

@@ -13,15 +13,15 @@ import {
   ZoomOut,
   Pin,
   Lock,
+  Info,
 } from "lucide-react";
 import BeadSwatch, { Bead } from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
 import SearchField from "@/components/SearchField";
-import PhotoVisualButton from "@/components/PhotoVisualButton";
+import MaterialDetailModal from "@/components/MaterialDetail";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { updateMaterial } from "@/lib/materials";
-import { generateVisualForName } from "@/lib/visuals";
 import {
   createDesign,
   deleteDesign,
@@ -155,7 +155,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  // Which material's detail modal is open (id, so a post-save refresh flows
+  // straight into the open modal instead of leaving it on a stale object).
+  const [detailId, setDetailId] = useState<string | null>(null);
   // Ids we've already requested a visual for, so partial API results don't
   // retry forever and later-added materials still get picked up.
   const attemptedVisuals = useRef(new Set<string>());
@@ -164,6 +166,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     () => new Map(materials.map((m) => [m.id, m])),
     [materials]
   );
+  const detailMaterial = detailId ? materialById.get(detailId) ?? null : null;
 
   // Track the board's width so fit-to-screen can compute a scale.
   useEffect(() => {
@@ -296,22 +299,6 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       }
     })();
   }, [materials, onMaterialsChanged]);
-
-  const regenerateVisual = async (material: Material) => {
-    setRegeneratingId(material.id);
-    setError("");
-    try {
-      const visual = await generateVisualForName(material.id, material.name);
-      if (visual) {
-        await updateMaterial(material.id, { visual });
-        await onMaterialsChanged();
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to regenerate");
-    } finally {
-      setRegeneratingId(null);
-    }
-  };
 
   // --- palette ---
   // Everything that can be placed on a strand, before the user's filters.
@@ -865,16 +852,13 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             <Pin className={`w-3.5 h-3.5 ${isPinned ? "fill-current" : ""}`} />
           </button>
         )}
-        <PhotoVisualButton material={m} onUpdated={onMaterialsChanged} onError={setError} />
         <button
-          onClick={() => regenerateVisual(m)}
-          disabled={regeneratingId === m.id}
+          onClick={() => setDetailId(m.id)}
           className="p-1 text-gray-300 hover:text-purple-600 shrink-0"
-          title="Regenerate artwork"
+          title="Details — edit, order info, photo"
+          aria-label={`Details for ${m.name}`}
         >
-          <RefreshCw
-            className={`w-3.5 h-3.5 ${regeneratingId === m.id ? "animate-spin text-purple-600" : ""}`}
-          />
+          <Info className="w-3.5 h-3.5" />
         </button>
       </div>
     );
@@ -1474,6 +1458,15 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           </div>
         )}
       </div>
+
+      {detailMaterial && (
+        <MaterialDetailModal
+          material={detailMaterial}
+          onClose={() => setDetailId(null)}
+          onChanged={onMaterialsChanged}
+          onError={setError}
+        />
+      )}
     </div>
   );
 }
