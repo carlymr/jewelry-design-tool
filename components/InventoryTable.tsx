@@ -33,7 +33,13 @@ import {
   type DrillType,
   type CabOutline,
 } from "@/lib/bead-visual";
-import { CATEGORIES, type Material, type NewMaterial, type Order } from "@/lib/types";
+import {
+  CATEGORIES,
+  presentCategories,
+  type Material,
+  type NewMaterial,
+  type Order,
+} from "@/lib/types";
 
 type SortKey = "name" | "category" | "unit_cost" | "quantity";
 
@@ -72,6 +78,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [familyFilter, setFamilyFilter] = useState("");
   const [sizeFilter, setSizeFilter] = useState("");
   const [page, setPage] = useState(0);
@@ -114,6 +121,9 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
     }
   };
 
+  // Only offer types the inventory actually holds, so no choice comes back empty.
+  const categoryOptions = useMemo(() => presentCategories(materials), [materials]);
+
   const sorted = useMemo(() => {
     const term = searchTerm.toLowerCase();
     const filtered = materials
@@ -123,6 +133,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
           m.category.toLowerCase().includes(term) ||
           m.supplier.toLowerCase().includes(term)
       )
+      .filter((m) => !categoryFilter || m.category === categoryFilter)
       .filter((m) => !familyFilter || colorFamilyOf(m.visual) === familyFilter)
       .filter((m) => !sizeFilter || sizeBucketOf(m.visual) === sizeFilter);
     return [...filtered].sort((a, b) => {
@@ -134,11 +145,11 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
           : String(av).toLowerCase().localeCompare(String(bv).toLowerCase());
       return sortOrder === "asc" ? cmp : -cmp;
     });
-  }, [materials, searchTerm, familyFilter, sizeFilter, sortBy, sortOrder]);
+  }, [materials, searchTerm, categoryFilter, familyFilter, sizeFilter, sortBy, sortOrder]);
 
   useEffect(() => {
     setPage(0);
-  }, [searchTerm, familyFilter, sizeFilter]);
+  }, [searchTerm, categoryFilter, familyFilter, sizeFilter]);
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
@@ -481,6 +492,9 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
       <div className="mb-4 flex flex-wrap gap-2">
         <SearchField value={searchTerm} onChange={setSearchTerm} className="flex-1 min-w-56" />
         <BeadFilters
+          categories={categoryOptions}
+          categoryFilter={categoryFilter}
+          onCategoryChange={setCategoryFilter}
           familyFilter={familyFilter}
           sizeFilter={sizeFilter}
           onFamilyChange={setFamilyFilter}
