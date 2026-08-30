@@ -13,7 +13,7 @@ Built with Next.js, Supabase, and the Anthropic API; deploys to Vercel.
 - **As-worn view**: toggle between the straight editing strand and how the piece actually lies — a closed circle for bracelet lengths, a hanging drape for necklaces — with pendants hanging true and selection/drag still live
 - **Pattern building**: click materials from the palette to place them, select a run (click / shift-click), then *Repeat ×N* or *Fill to target* to complete the strand; Backspace removes the last-placed element
 - **Direct manipulation**: drag an element (or a selected run) to rearrange the strand, click between elements to move the insertion point, and use arrow keys to move it precisely (Shift+arrows to select, Esc to clear)
-- **Beyond beads**: chain (placed by the inch), lobster and toggle clasps, jump rings, connectors, and cabochons — each renders with its own treatment, and a cabochon's varies with how it's drilled (undrilled or unrecorded → placeholder bail flagged "needs setting", front-to-back → pinch bail, top-drilled → hangs from the wire, center-drilled → strung inline)
+- **Beyond beads**: chain (placed by the inch), lobster and toggle clasps, jump rings, connectors, bezel settings, pinch bails, and cabochons — each renders with its own treatment, and a cabochon's varies with how it's drilled (undrilled or unrecorded → placeholder bail flagged "needs setting", front-to-back → pinch bail, top-drilled → hangs from the wire, center-drilled → strung inline)
 - **Live totals**: length vs. target, material cost, and "need X, have Y" warnings when a design overdraws inventory
 - **Saved designs** with name and target length, persisted to Supabase
 
@@ -31,7 +31,7 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 - Searchable, sortable, paginated table with bead swatches, inline stock editing, and **color family / size filters**
 - **Works on a phone**: rows become cards below tablet width, with a sort dropdown standing in for the column headers
 - **Full row editing**: fix a material's name, category, cost, or unit after import (sellers mislabel stones); renaming offers to regenerate the visual from the corrected name
-- **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries, estimating bead counts from strand lengths — into an editable preview before importing
+- **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries, estimating bead counts from strand lengths, resolving pick-your-stone cabochon selections (the variation code/dimensions, not the generic listing title), and naming bezel settings by the stone they fit and bails by finish and size — into an editable preview before importing
 - **CSV import/export** compatible with the original artifact tool (`Name, Category, Cost Per Unit, Unit, In Stock`)
 
 ### Pricing & listing
