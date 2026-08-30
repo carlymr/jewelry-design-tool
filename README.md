@@ -116,4 +116,4 @@ lib/
 supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance)
 ```
 
-Receipt extraction and visual generation both use the Anthropic structured outputs API (`client.messages.parse` with Zod schemas), so results arrive as validated JSON.
+Visual and listing generation use the Anthropic structured outputs API (`client.messages.parse` with Zod schemas); receipt extraction uses the same Zod-derived schema but streams the response (`client.messages.stream()`), so long receipts aren't capped by the non-streaming token budget. Results arrive as validated JSON either way.

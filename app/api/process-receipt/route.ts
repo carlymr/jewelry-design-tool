@@ -7,7 +7,10 @@ import { getSupabaseConfig } from "@/lib/supabase-config";
 import { isAuthorized } from "@/lib/api-token";
 import { CATEGORIES } from "@/lib/types";
 
-export const maxDuration = 120;
+// Long receipts can take a few minutes with adaptive thinking; keep this above
+// the SDK-side timeout so Vercel doesn't kill the function mid-generation and
+// skip the `finally` cleanup below.
+export const maxDuration = 300;
 
 const RECEIPTS_BUCKET = "receipts";
 
@@ -62,12 +65,12 @@ const ExtractedItemSchema = z.object({
     .object({
       listing_title: z
         .string()
-        .describe("The line item's title exactly as printed on the receipt (no cleanup)"),
+        .describe("The line item's title as printed on the receipt (no cleanup; first 120 characters are enough)"),
       variation: z
         .string()
         .nullable()
         .describe(
-          'Variation / personalization / selection text exactly as printed, e.g. "Iron Tiger Eye Gemstone: IR3896 30X24X5MM43CT" or "Length: 6MM 7.5\" · Qty Package: 1"; null when the line has none'
+          'Variation / personalization / selection text exactly as printed, e.g. "Iron Tiger Eye Gemstone: IR3896 30X24X5MM43CT" or "Length: 6MM 7.5\" · Qty Package: 1" (first 120 characters); null when the line has none'
         ),
       line_price: z
         .number()
@@ -266,18 +269,26 @@ export async function POST(request: NextRequest) {
         };
 
     const client = new Anthropic();
-    const response = await client.messages.parse({
-      model: "claude-opus-4-8",
-      max_tokens: 16000,
-      thinking: { type: "adaptive" },
-      messages: [
-        {
-          role: "user",
-          content: [fileBlock, { type: "text", text: EXTRACTION_PROMPT }],
-        },
-      ],
-      output_config: { format: zodOutputFormat(ReceiptExtractionSchema) },
-    });
+    // Streamed so the SDK's 10-minute non-streaming cap doesn't bound
+    // max_tokens: adaptive thinking plus a 40-line receipt's verbatim
+    // provenance overflowed a non-streaming budget and truncated the JSON.
+    // The stream helper applies the zod output format itself and exposes the
+    // result as parsed_output; a truncated or invalid response rejects
+    // finalMessage() with an AnthropicError (handled in the catch below).
+    const response = await client.messages
+      .stream({
+        model: "claude-opus-4-8",
+        max_tokens: 64000,
+        thinking: { type: "adaptive" },
+        messages: [
+          {
+            role: "user",
+            content: [fileBlock, { type: "text", text: EXTRACTION_PROMPT }],
+          },
+        ],
+        output_config: { format: zodOutputFormat(ReceiptExtractionSchema) },
+      })
+      .finalMessage();
 
     if (response.stop_reason === "refusal") {
       return NextResponse.json(
@@ -306,6 +317,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Rate limited by the Anthropic API. Try again in a minute." },
         { status: 429 }
+      );
+    }
+    if (error instanceof Anthropic.AnthropicError && !(error instanceof Anthropic.APIError)) {
+      // Structured-output parse failure (truncated or schema-invalid JSON).
+      return NextResponse.json(
+        { error: "Could not parse a structured result from the model — try again." },
+        { status: 502 }
       );
     }
     if (error instanceof Anthropic.APIError) {
