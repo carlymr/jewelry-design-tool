@@ -29,6 +29,7 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 ### Inventory
 
 - Searchable, sortable, paginated table with bead swatches, inline stock editing, and **color family / size filters**
+- **Works on a phone**: rows become cards below tablet width, with a sort dropdown standing in for the column headers
 - **Full row editing**: fix a material's name, category, cost, or unit after import (sellers mislabel stones); renaming offers to regenerate the visual from the corrected name
 - **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries, estimating bead counts from strand lengths — into an editable preview before importing
 - **CSV import/export** compatible with the original artifact tool (`Name, Category, Cost Per Unit, Unit, In Stock`)

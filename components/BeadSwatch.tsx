@@ -488,8 +488,10 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead" }: BeadP
         strokeOpacity={0.5}
         strokeWidth={0.75}
       />
-      <g clipPath={`url(#${clipId})`}>{patternMarks}</g>
-      {facetOverlay}
+      <g clipPath={`url(#${clipId})`}>
+        {patternMarks}
+        {facetOverlay}
+      </g>
       {(visual.finish === "glossy" ||
         visual.finish === "pearl" ||
         visual.finish === "transparent") && (

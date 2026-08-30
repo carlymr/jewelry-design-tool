@@ -19,10 +19,10 @@ export default function NavBar() {
   return (
     <header className="border-b border-gray-200 bg-white">
       <nav className="max-w-6xl mx-auto px-3 sm:px-6 flex items-center gap-3 sm:gap-6 h-12 whitespace-nowrap">
-        <span className="font-semibold text-purple-700">
+        <Link href="/" className="font-semibold text-purple-700" title="Jewelry Design Tool">
           <span className="sm:hidden">JDT</span>
           <span className="hidden sm:inline">Jewelry Design Tool</span>
-        </span>
+        </Link>
         {LINKS.map((link) => (
           <Link
             key={link.href}
