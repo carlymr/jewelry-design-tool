@@ -1327,11 +1327,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 <button
                   onClick={() => addBead(m.id)}
                   className="flex items-center gap-3 flex-1 text-left min-w-0"
-                  title={
-                    m.source?.variation
-                      ? `Add to strand · ${m.source.variation}`
-                      : "Add to strand"
-                  }
+                  title="Add to strand"
                 >
                   <span className="w-9 flex justify-center shrink-0">
                     <BeadSwatch visual={m.visual} size={32} seed={m.id} />
@@ -1340,6 +1336,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                     <span className="block text-sm text-gray-900 leading-snug">
                       {m.name}
                     </span>
+                    {m.source?.variation && (
+                      <span className="block text-xs text-gray-400 font-mono truncate">
+                        {m.source.variation}
+                      </span>
+                    )}
                     <span className="block text-xs text-gray-500">
                       {m.quantity} in stock · ${m.unit_cost.toFixed(3)}/ea
                       {m.visual?.shape === "chain" && (

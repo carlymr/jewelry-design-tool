@@ -4,7 +4,7 @@
 -- Receipts are archived in a second, owner-scoped bucket; the `receipts`
 -- bucket stays transient (see CLAUDE.md).
 
-create table public.orders (
+create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   platform text not null,
@@ -20,6 +20,7 @@ create table public.orders (
 );
 
 alter table public.orders enable row level security;
+drop policy if exists "Own orders" on public.orders;
 create policy "Own orders"
   on public.orders
   for all to authenticated
@@ -27,9 +28,9 @@ create policy "Own orders"
   with check (user_id = auth.uid());
 
 alter table public.materials
-  add column order_id uuid references public.orders (id) on delete set null,
-  add column source jsonb;
-create index materials_order_id_idx on public.materials (order_id);
+  add column if not exists order_id uuid references public.orders (id) on delete set null,
+  add column if not exists source jsonb;
+create index if not exists materials_order_id_idx on public.materials (order_id);
 
 -- Archive bucket: private, paths are {user_id}/{order_id}.{ext}, and every
 -- policy checks the first path segment against the caller.
@@ -43,15 +44,19 @@ values (
 )
 on conflict (id) do nothing;
 
+drop policy if exists "Own receipt archive select" on storage.objects;
 create policy "Own receipt archive select"
   on storage.objects for select to authenticated
   using (bucket_id = 'receipt-archive' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "Own receipt archive insert" on storage.objects;
 create policy "Own receipt archive insert"
   on storage.objects for insert to authenticated
   with check (bucket_id = 'receipt-archive' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "Own receipt archive update" on storage.objects;
 create policy "Own receipt archive update"
   on storage.objects for update to authenticated
   using (bucket_id = 'receipt-archive' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "Own receipt archive delete" on storage.objects;
 create policy "Own receipt archive delete"
   on storage.objects for delete to authenticated
   using (bucket_id = 'receipt-archive' and (storage.foldername(name))[1] = auth.uid()::text);

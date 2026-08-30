@@ -6,8 +6,8 @@ import { useRef, useState } from "react";
 import { Upload, Eye, Trash2 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import { apiHeaders } from "@/lib/auth";
-import { importMaterials } from "@/lib/materials";
-import { archiveReceipt, updateOrder, upsertOrder } from "@/lib/orders";
+import { importMaterials, matchImportRows } from "@/lib/materials";
+import { archiveReceipt, findOrder, updateOrder, upsertOrder } from "@/lib/orders";
 import { uploadForProcessing } from "@/lib/photo-upload";
 import type { ExtractedItem, ExtractedOrder } from "@/lib/types";
 
@@ -29,25 +29,31 @@ export default function ReceiptImport({ onImported }: Props) {
   const [error, setError] = useState("");
   const [items, setItems] = useState<ExtractedItem[]>([]);
   const [order, setOrder] = useState<ExtractedOrder | null>(null);
-  const [notes, setNotes] = useState<string | null>(null);
-  const [summary, setSummary] = useState<string | null>(null);
-  // The uploaded file is kept so it can be archived with the order at import.
-  const fileRef = useRef<File | null>(null);
+  // One status slot: the model's extraction note, then the import summary.
+  const [message, setMessage] = useState<string | null>(null);
+  // Which existing material each preview line would update (by index).
+  const [matches, setMatches] = useState<(string | null)[]>([]);
+  // The processed upload is kept so it can be archived with the order at
+  // import — the processed one, since it's the version in an accepted format.
+  const fileRef = useRef<{ blob: Blob; mediaType: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const patchOrder = (fields: Partial<ExtractedOrder>) =>
+    setOrder({ ...(order ?? EMPTY_ORDER), ...fields });
 
   const processReceipt = async (file: File) => {
     setProcessing(true);
     setError("");
     setItems([]);
     setOrder(null);
-    setNotes(null);
-    setSummary(null);
-    fileRef.current = file;
+    setMessage(null);
+    setMatches([]);
 
     try {
       // Validate/downscale/upload directly to Supabase Storage, then hand
       // the API route only the path.
-      const { path, mediaType } = await uploadForProcessing(file, { allowPdf: true });
+      const { path, mediaType, blob } = await uploadForProcessing(file, { allowPdf: true });
+      fileRef.current = { blob, mediaType };
 
       const response = await fetch("/api/process-receipt", {
         method: "POST",
@@ -60,11 +66,23 @@ export default function ReceiptImport({ onImported }: Props) {
         throw new Error(result.error || `Request failed (${response.status})`);
       }
 
-      setItems(result.items ?? []);
+      const extracted: ExtractedItem[] = result.items ?? [];
+      setItems(extracted);
       setOrder(result.order ?? null);
-      setNotes(result.notes ?? null);
-      if ((result.items ?? []).length === 0 && !result.notes) {
-        setNotes("No jewelry materials were found on this receipt.");
+      setMessage(
+        result.notes ??
+          (extracted.length === 0 ? "No jewelry materials were found on this receipt." : null)
+      );
+      // Preview what a re-upload will update, so surprises show before Import.
+      try {
+        const existing =
+          result.order?.platform && result.order?.order_number
+            ? await findOrder(result.order.platform, result.order.order_number)
+            : null;
+        const found = await matchImportRows(extracted, existing?.id ?? null);
+        setMatches(found.map((m) => m?.name ?? null));
+      } catch {
+        setMatches([]);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to process receipt");
@@ -75,6 +93,7 @@ export default function ReceiptImport({ onImported }: Props) {
 
   const removeItem = (index: number) => {
     setItems(items.filter((_, i) => i !== index));
+    setMatches(matches.filter((_, i) => i !== index));
   };
 
   const updateItem = (index: number, fields: Partial<ExtractedItem>) => {
@@ -95,7 +114,6 @@ export default function ReceiptImport({ onImported }: Props) {
           order?.order_number?.trim() || `receipt-${new Date().toISOString().slice(0, 10)}`,
         order_date: order?.order_date || null,
         total: order?.total ?? null,
-        receipt_path: null,
       });
       const result = await importMaterials(
         items.map((item) => ({
@@ -111,24 +129,24 @@ export default function ReceiptImport({ onImported }: Props) {
         orderRow.id
       );
       let archiveNote = "";
-      const file = fileRef.current;
-      if (file) {
+      const upload = fileRef.current;
+      if (upload) {
         try {
-          const path = await archiveReceipt(orderRow.id, file, file.type);
+          const path = await archiveReceipt(orderRow.id, upload.blob, upload.mediaType);
           await updateOrder(orderRow.id, { receipt_path: path });
         } catch (e) {
           archiveNote = ` Receipt file wasn't archived: ${e instanceof Error ? e.message : "unknown error"}.`;
         }
       }
       await onImported();
-      setSummary(
+      setMessage(
         `Imported ${result.inserted} new and updated ${result.updated} existing material${
           result.updated === 1 ? "" : "s"
         } from ${orderRow.platform}${orderRow.seller ? ` / ${orderRow.seller}` : ""} order ${orderRow.order_number}.${archiveNote}`
       );
       setItems([]);
       setOrder(null);
-      setNotes(null);
+      setMatches([]);
       fileRef.current = null;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to import materials");
@@ -191,7 +209,7 @@ export default function ReceiptImport({ onImported }: Props) {
                     <input
                       type="text"
                       value={order?.platform ?? ""}
-                      onChange={(e) => setOrder({ ...(order ?? EMPTY_ORDER), platform: e.target.value })}
+                      onChange={(e) => patchOrder({ platform: e.target.value })}
                       className="px-2 py-1 border border-gray-300 rounded text-sm text-gray-900"
                     />
                   </label>
@@ -200,7 +218,7 @@ export default function ReceiptImport({ onImported }: Props) {
                     <input
                       type="text"
                       value={order?.seller ?? ""}
-                      onChange={(e) => setOrder({ ...(order ?? EMPTY_ORDER), seller: e.target.value })}
+                      onChange={(e) => patchOrder({ seller: e.target.value })}
                       className="px-2 py-1 border border-gray-300 rounded text-sm text-gray-900"
                     />
                   </label>
@@ -209,9 +227,9 @@ export default function ReceiptImport({ onImported }: Props) {
                     <input
                       type="text"
                       value={order?.order_number ?? ""}
-                      onChange={(e) =>
-                        setOrder({ ...(order ?? EMPTY_ORDER), order_number: e.target.value })
-                      }
+                      onChange={(e) => patchOrder({ order_number: e.target.value })}
+                      placeholder="blank = one order per day"
+                      title="Materials are grouped by platform + order number; leave blank and today's date is used"
                       className="px-2 py-1 border border-gray-300 rounded text-sm text-gray-900"
                     />
                   </label>
@@ -220,9 +238,7 @@ export default function ReceiptImport({ onImported }: Props) {
                     <input
                       type="date"
                       value={order?.order_date ?? ""}
-                      onChange={(e) =>
-                        setOrder({ ...(order ?? EMPTY_ORDER), order_date: e.target.value || null })
-                      }
+                      onChange={(e) => patchOrder({ order_date: e.target.value || null })}
                       className="px-2 py-1 border border-gray-300 rounded text-sm text-gray-900"
                     />
                   </label>
@@ -243,7 +259,17 @@ export default function ReceiptImport({ onImported }: Props) {
                             />
                           </span>
                         )}
-                        <div className="font-medium text-gray-900">{item.name}</div>
+                        <div className="font-medium text-gray-900">
+                          {item.name}
+                          {matches[index] && (
+                            <span
+                              className="ml-2 inline-block align-middle text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800"
+                              title={`Updates existing: ${matches[index]}`}
+                            >
+                              updates existing
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <button
                         onClick={() => removeItem(index)}
@@ -297,7 +323,7 @@ export default function ReceiptImport({ onImported }: Props) {
                   </div>
                 ))}
 
-                {notes && <p className="text-xs text-gray-500 italic">{notes}</p>}
+                {message && <p className="text-xs text-gray-500 italic">{message}</p>}
 
                 <button
                   onClick={importItems}
@@ -313,7 +339,7 @@ export default function ReceiptImport({ onImported }: Props) {
               <div className="flex items-center justify-center h-full min-h-56 text-gray-500">
                 <div className="text-center">
                   <Eye className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>{summary ?? notes ?? "Extracted materials will appear here after processing"}</p>
+                  <p>{message ?? "Extracted materials will appear here after processing"}</p>
                 </div>
               </div>
             )}
