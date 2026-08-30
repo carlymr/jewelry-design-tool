@@ -1422,6 +1422,29 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             </span>
           )}
         </div>
+        {workingSet.length > 0 && (
+          <div className="mb-4 bg-purple-50/70 border border-purple-200 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-medium text-purple-900">
+                Working set
+                <span className="ml-2 font-normal text-purple-700/70">
+                  on the strand and pinned — not filtered
+                </span>
+              </h3>
+              {pinned.length > 0 && (
+                <button
+                  onClick={() => setPinned([])}
+                  className="text-xs text-purple-700/70 hover:text-purple-900"
+                >
+                  Unpin all
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {workingSet.map(paletteCard)}
+            </div>
+          </div>
+        )}
         <div className="mb-3 flex flex-wrap gap-2">
           <SearchField
             value={paletteSearch}
@@ -1438,29 +1461,6 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             onSizeChange={setSizeFilter}
           />
         </div>
-        {workingSet.length > 0 && (
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-700">
-                Working set
-                <span className="ml-2 font-normal text-gray-400">
-                  on the strand and pinned — always shown
-                </span>
-              </h3>
-              {pinned.length > 0 && (
-                <button
-                  onClick={() => setPinned([])}
-                  className="text-xs text-gray-500 hover:text-purple-600"
-                >
-                  Unpin all
-                </button>
-              )}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {workingSet.map(paletteCard)}
-            </div>
-          </div>
-        )}
         {palette.length === 0 ? (
           <p className="text-sm text-gray-500 py-4 text-center">
             {workingSet.length > 0
