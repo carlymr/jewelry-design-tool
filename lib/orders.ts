@@ -31,6 +31,17 @@ export async function upsertOrder(order: Omit<NewOrder, "receipt_path">): Promis
   return data;
 }
 
+/** One order by id, for showing a material's provenance. */
+export async function getOrder(id: string): Promise<Order | null> {
+  const { data, error } = await getSupabase()
+    .from("orders")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 /** The order previously imported for this platform + order number, if any —
  * lets the import preview show what a re-upload will update. */
 export async function findOrder(platform: string, orderNumber: string): Promise<Order | null> {
