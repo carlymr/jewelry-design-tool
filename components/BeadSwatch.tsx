@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useId } from "react";
-import type { BeadVisual } from "@/lib/bead-visual";
+import type { BeadVisual, CabOutline } from "@/lib/bead-visual";
 
 // Renders a bead from its stored visual spec. `Bead` is an SVG <g> at the
 // origin (for composing into the strand SVG); `BeadSwatch` wraps it in a
@@ -72,8 +72,79 @@ function blobPath(points: [number, number][]): string {
 
 type ShapeProps = React.SVGAttributes<SVGElement>;
 
+/** Regular polygon inscribed in the L×W box, with the first vertex on the
+ * -x edge so pointed outlines (triangle, pentagon) aim toward x=0 — the
+ * end nearest the bail once a pendant is rotated to hang. */
+function polygonPoints(n: number, L: number, W: number): [number, number][] {
+  return Array.from({ length: n }, (_, i) => {
+    const angle = Math.PI + (i / n) * Math.PI * 2;
+    return [L / 2 + (Math.cos(angle) * L) / 2, W / 2 + (Math.sin(angle) * W) / 2];
+  });
+}
+
+/** Closed SVG path for a cabochon face (or bezel recess) outline filling the
+ * L×W box. `rand` only matters for the irregular outlines. */
+export function outlinePath(
+  outline: CabOutline | null | undefined,
+  L: number,
+  W: number,
+  rand: () => number
+): string {
+  const poly = (pts: [number, number][]) =>
+    `M ${pts.map(([x, y]) => `${x} ${y}`).join(" L ")} Z`;
+  switch (outline) {
+    case "rectangle": {
+      const r = Math.min(L, W) * 0.12;
+      return `M ${r} 0 H ${L - r} A ${r} ${r} 0 0 1 ${L} ${r} V ${W - r} A ${r} ${r} 0 0 1 ${L - r} ${W} H ${r} A ${r} ${r} 0 0 1 0 ${W - r} V ${r} A ${r} ${r} 0 0 1 ${r} 0 Z`;
+    }
+    case "triangle":
+      return poly([
+        [0, W / 2],
+        [L, 0],
+        [L, W],
+      ]);
+    case "pentagon":
+      return poly(polygonPoints(5, L, W));
+    case "hexagon":
+      return poly(polygonPoints(6, L, W));
+    case "teardrop": {
+      const r = W * 0.35;
+      return `M 0 ${W / 2} Q ${L * 0.35} ${W * 0.04} ${L * 0.7} ${W / 2 - r} A ${r} ${r} 0 1 1 ${L * 0.7} ${W / 2 + r} Q ${L * 0.35} ${W * 0.96} 0 ${W / 2} Z`;
+    }
+    case "marquise":
+      return `M 0 ${W / 2} Q ${L / 2} ${-W * 0.5} ${L} ${W / 2} Q ${L / 2} ${W * 1.5} 0 ${W / 2} Z`;
+    case "trapiche":
+      // Slices are cut round-to-hexagonal; a soft hexagon reads as either.
+      return blobPath(fillBounds(polygonPoints(6, L, W), L, W));
+    case "stalactite":
+    case "freeform": {
+      // Lumpy outline: more, gentler bumps for a slice than for a freeform
+      // cut, which tends to have a few decisive facets.
+      const n = outline === "stalactite" ? 12 : 7;
+      const depth = outline === "stalactite" ? 0.18 : 0.26;
+      const points: [number, number][] = [];
+      for (let i = 0; i < n; i++) {
+        const angle = (i / n) * Math.PI * 2;
+        const jitter = 1 - depth + rand() * depth;
+        points.push([
+          L / 2 + Math.cos(angle) * (L / 2) * jitter,
+          W / 2 + Math.sin(angle) * (W / 2) * jitter,
+        ]);
+      }
+      return blobPath(fillBounds(points, L, W));
+    }
+    // oval, round, unknown
+    default:
+      return `M 0 ${W / 2} A ${L / 2} ${W / 2} 0 1 1 ${L} ${W / 2} A ${L / 2} ${W / 2} 0 1 1 0 ${W / 2} Z`;
+  }
+}
+
 function shapeElement(visual: BeadVisual, L: number, W: number, rand: () => number) {
   switch (visual.shape) {
+    case "cabochon": {
+      const d = outlinePath(visual.outline, L, W, rand);
+      return { el: (props: ShapeProps) => <path d={d} {...props} /> };
+    }
     case "bicone":
       return {
         el: (props: ShapeProps) => (
@@ -158,7 +229,8 @@ function shapeElement(visual: BeadVisual, L: number, W: number, rand: () => numb
  * metal shapes — strokes and bars, not filled silhouettes — so they bypass
  * the gradient/pattern/facet pipeline and draw themselves directly. Returns
  * null for bead shapes. Cabochons deliberately fall through to the bead
- * pipeline: a flat-backed stone reads exactly like a large domed oval.
+ * pipeline: a flat-backed stone reads like a large domed bead cut to its
+ * face outline (`outlinePath`).
  * Bezels and bails are open metal like the rest and draw here. */
 function componentElement(
   visual: BeadVisual,
@@ -285,17 +357,16 @@ function componentElement(
       // Rim clamped so the recess always exists — a null here would fall
       // back to the filled bead pipeline and look like a cabochon.
       const sw = Math.min(Math.max(1, Math.min(L, W) * 0.12), Math.min(L, W) * 0.3);
-      const rx = L / 2 - sw / 2;
-      const ry = W / 2 - sw / 2;
+      // The rim follows the recess outline, inset so the stroke stays in the box.
+      const d = outlinePath(visual.outline, L - sw, W - sw, seededRandom("bezel"));
+      const lip = Math.max(0.05, 1 - (sw * 2.8) / Math.min(L, W));
       return (
-        <g fill="none" stroke={paint}>
+        <g fill="none" stroke={paint} transform={`translate(${sw / 2}, ${sw / 2})`}>
           {/* a faint fill in the well keeps it from reading as a jump ring */}
-          <ellipse cx={L / 2} cy={W / 2} rx={rx} ry={ry} fill={paint} fillOpacity={0.18} strokeWidth={sw} />
-          <ellipse
-            cx={L / 2}
-            cy={W / 2}
-            rx={Math.max(0.5, rx - sw * 1.4)}
-            ry={Math.max(0.5, ry - sw * 1.4)}
+          <path d={d} fill={paint} fillOpacity={0.18} strokeWidth={sw} strokeLinejoin="round" />
+          <path
+            d={d}
+            transform={`translate(${(L - sw) / 2}, ${(W - sw) / 2}) scale(${lip}) translate(${-(L - sw) / 2}, ${-(W - sw) / 2})`}
             strokeWidth={Math.max(0.4, sw * 0.35)}
             opacity={0.7}
           />
@@ -477,6 +548,43 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead" }: BeadP
     }
   }
 
+  // Slice signatures: stalactite slices grow in concentric rings around an
+  // off-center core; trapiche slices carry six radial spokes from the center.
+  const sliceInk = sec ?? shade(c, -0.4);
+  const outline = visual.shape === "cabochon" ? visual.outline : null;
+  const sliceOverlay =
+    outline === "stalactite" ? (
+      <g fill="none" stroke={sliceInk} strokeOpacity={0.55} strokeWidth={0.6}>
+        {[0.82, 0.64, 0.46, 0.28].map((k) => {
+          const d = outlinePath("stalactite", L * k, W * k, seededRandom(seed + k));
+          return (
+            <path
+              key={k}
+              d={d}
+              transform={`translate(${L * 0.5 - (L * k) / 2 + L * 0.06 * (1 - k)}, ${W * 0.5 - (W * k) / 2 - W * 0.08 * (1 - k)})`}
+            />
+          );
+        })}
+        <circle cx={L * 0.56} cy={W * 0.42} r={Math.max(0.6, Math.min(L, W) * 0.06)} fill={sliceInk} />
+      </g>
+    ) : outline === "trapiche" ? (
+      <g stroke={sliceInk} strokeOpacity={0.75} strokeWidth={Math.max(0.6, Math.min(L, W) * 0.05)} strokeLinecap="round">
+        {Array.from({ length: 6 }, (_, i) => {
+          const angle = Math.PI + (i / 6) * Math.PI * 2;
+          return (
+            <line
+              key={i}
+              x1={L / 2}
+              y1={W / 2}
+              x2={L / 2 + (Math.cos(angle) * L) / 2}
+              y2={W / 2 + (Math.sin(angle) * W) / 2}
+            />
+          );
+        })}
+        <circle cx={L / 2} cy={W / 2} r={Math.max(0.8, Math.min(L, W) * 0.09)} fill={sliceInk} stroke="none" />
+      </g>
+    ) : null;
+
   // Suggest facets without real geometry: an inscribed hexagon with short
   // radial cuts toward the edge; for octagons (cornerless cubes) an inscribed
   // diamond echoes the corner-cut faces instead.
@@ -528,6 +636,7 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead" }: BeadP
       />
       <g clipPath={`url(#${clipId})`}>
         {patternMarks}
+        {sliceOverlay}
         {facetOverlay}
       </g>
       {(visual.finish === "glossy" ||
