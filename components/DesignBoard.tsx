@@ -12,6 +12,7 @@ import {
   ZoomIn,
   ZoomOut,
   Pin,
+  Lock,
 } from "lucide-react";
 import BeadSwatch, { Bead } from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
@@ -322,29 +323,23 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // filed outside PLACEABLE_CATEGORIES that earned a visual anyway.
   const categoryOptions = useMemo(() => presentCategories(placeable), [placeable]);
 
+  // Distinct materials on the strand, in the order they first appear on it.
+  const strandMaterialIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const b of beads) ids.add(b.material_id);
+    return ids;
+  }, [beads]);
+
   // The working set: what you're building with right now. Materials already on
   // the strand stay reachable automatically, and pinning keeps one around after
   // it leaves the strand. Both ignore the search and filters, so switching
   // between a few beads no longer means re-searching for each one.
   const workingSet = useMemo(() => {
-    const ids: string[] = [];
-    const seen = new Set<string>();
-    for (const b of beads) {
-      if (!seen.has(b.material_id)) {
-        seen.add(b.material_id);
-        ids.push(b.material_id);
-      }
-    }
-    for (const id of pinned) {
-      if (!seen.has(id)) {
-        seen.add(id);
-        ids.push(id);
-      }
-    }
+    const ids = [...strandMaterialIds, ...pinned.filter((id) => !strandMaterialIds.has(id))];
     return ids
       .map((id) => materialById.get(id))
       .filter((m): m is Material => m !== undefined);
-  }, [beads, pinned, materialById]);
+  }, [strandMaterialIds, pinned, materialById]);
 
   const workingSetIds = useMemo(
     () => new Set(workingSet.map((m) => m.id)),
@@ -816,6 +811,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   /** One palette entry — used by both the working set and the filtered grid. */
   const paletteCard = (m: Material) => {
     const isPinned = pinned.includes(m.id);
+    const onStrand = strandMaterialIds.has(m.id);
     return (
       <div
         key={m.id}
@@ -848,16 +844,27 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           </span>
           <Plus className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
         </button>
-        <button
-          onClick={() => togglePin(m.id)}
-          className={`p-1 shrink-0 ${
-            isPinned ? "text-purple-600" : "text-gray-300 hover:text-purple-600"
-          }`}
-          aria-pressed={isPinned}
-          title={isPinned ? "Unpin from working set" : "Pin to working set"}
-        >
-          <Pin className={`w-3.5 h-3.5 ${isPinned ? "fill-current" : ""}`} />
-        </button>
+        {onStrand ? (
+          // Already held by the design: pinning it would change nothing you
+          // could see, so this reads as status, not a control.
+          <span
+            className="p-1 shrink-0 text-purple-400"
+            title="In the design — stays here while it's on the strand"
+          >
+            <Lock className="w-3.5 h-3.5" />
+          </span>
+        ) : (
+          <button
+            onClick={() => togglePin(m.id)}
+            className={`p-1 shrink-0 ${
+              isPinned ? "text-purple-600" : "text-gray-300 hover:text-purple-600"
+            }`}
+            aria-pressed={isPinned}
+            title={isPinned ? "Unpin from working set" : "Pin to working set"}
+          >
+            <Pin className={`w-3.5 h-3.5 ${isPinned ? "fill-current" : ""}`} />
+          </button>
+        )}
         <PhotoVisualButton material={m} onUpdated={onMaterialsChanged} onError={setError} />
         <button
           onClick={() => regenerateVisual(m)}
@@ -1424,22 +1431,16 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         </div>
         {workingSet.length > 0 && (
           <div className="mb-4 bg-purple-50/70 border border-purple-200 rounded-lg p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-purple-900">
-                Working set
-                <span className="ml-2 font-normal text-purple-700/70">
-                  on the strand and pinned — not filtered
-                </span>
-              </h3>
-              {pinned.length > 0 && (
+            {pinned.length > 0 && (
+              <div className="flex justify-end mb-2">
                 <button
                   onClick={() => setPinned([])}
                   className="text-xs text-purple-700/70 hover:text-purple-900"
                 >
                   Unpin all
                 </button>
-              )}
-            </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {workingSet.map(paletteCard)}
             </div>
