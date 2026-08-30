@@ -411,6 +411,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     mutateBeads(next);
     setInsertion(at + 1);
     setSelection(null);
+    // Hand focus to the board so Backspace immediately undoes a mis-click —
+    // otherwise the palette button (or, in Safari, the page body) keeps focus
+    // and the board's key handler never hears about it. preventScroll keeps
+    // the palette from jumping out from under the pointer.
+    boardRef.current?.focus({ preventScroll: true });
   };
 
   const deleteSelection = useCallback(() => {
