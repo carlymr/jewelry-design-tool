@@ -303,16 +303,30 @@ export default function PricingStudio({ materials }: Props) {
     setGenerating(true);
     setError("");
     try {
+      // Names alone lose treatments (a dyed "galaxy" tiger's eye is inventoried
+      // as plain Tiger's Eye per the naming standard), so send the stored
+      // visual and the verbatim supplier listing too — the route folds them
+      // into the prompt so colors come from the actual beads.
+      const toListingMaterial = (m: Material, quantity: number) => ({
+        name: m.name,
+        quantity,
+        visual: m.visual ?? undefined,
+        source: m.source
+          ? {
+              listing_title: m.source.listing_title.slice(0, 1000),
+              variation: m.source.variation?.slice(0, 1000) ?? null,
+            }
+          : undefined,
+      });
       const usedMaterials = [
         ...beadUsage
           .filter((u) => u.material)
-          .map((u) => ({ name: u.material!.name, quantity: u.count })),
+          .map((u) => toListingMaterial(u.material!, u.count)),
         ...extras
-          .map((e) => ({
-            name: materialById.get(e.material_id)?.name ?? "",
-            quantity: e.quantity,
-          }))
-          .filter((m) => m.name && m.quantity > 0),
+          .flatMap((e) => {
+            const m = materialById.get(e.material_id);
+            return m && e.quantity > 0 ? [toListingMaterial(m, e.quantity)] : [];
+          }),
       ];
       if (usedMaterials.length === 0) {
         setError("This design has no materials to describe yet.");

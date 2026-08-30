@@ -10,10 +10,41 @@ export const maxDuration = 60;
 // materials and counts from the strand), not a free-text description. The
 // client keeps the result editable and writes it to designs.listing itself.
 
+// Loose mirror of BeadVisualSchema (lib/bead-visual.ts): every field optional
+// and enums widened to strings, so a listing still generates if the visual
+// schema gains fields or a stored visual predates one.
+const AppearanceSchema = z
+  .object({
+    shape: z.string(),
+    length_mm: z.number(),
+    width_mm: z.number(),
+    color: z.string(),
+    color_family: z.string().nullable(),
+    color_secondary: z.string().nullable(),
+    finish: z.string(),
+    pattern: z.string(),
+    faceted: z.boolean(),
+  })
+  .partial();
+
+const SourceSchema = z
+  .object({
+    listing_title: z.string().max(1000),
+    variation: z.string().max(1000).nullable(),
+  })
+  .partial();
+
 const RequestSchema = z.object({
   design_name: z.string().min(1),
   materials: z
-    .array(z.object({ name: z.string().min(1), quantity: z.number().positive() }))
+    .array(
+      z.object({
+        name: z.string().min(1),
+        quantity: z.number().positive(),
+        visual: AppearanceSchema.nullish(),
+        source: SourceSchema.nullish(),
+      })
+    )
     .min(1)
     .max(100),
   price: z.number().nonnegative(),
@@ -64,7 +95,32 @@ export async function POST(request: NextRequest) {
   }
 
   const materialsList = body.materials
-    .map((m) => `- ${m.name} × ${m.quantity}`)
+    .map((m) => {
+      const lines = [`- ${m.name} × ${m.quantity}`];
+      const v = m.visual;
+      if (v) {
+        const bits: string[] = [];
+        const colors = [v.color, v.color_secondary].filter(Boolean).join(" with ");
+        if (colors)
+          bits.push(`color ${colors}${v.color_family ? ` (${v.color_family} family)` : ""}`);
+        if (v.pattern && v.pattern !== "solid") bits.push(v.pattern);
+        if (v.finish) bits.push(`${v.finish} finish`);
+        if (v.faceted) bits.push("faceted");
+        if (v.shape)
+          bits.push(
+            `${v.shape}${v.width_mm && v.length_mm ? ` ${v.width_mm}×${v.length_mm}mm` : ""}`
+          );
+        if (bits.length) lines.push(`  appearance: ${bits.join(", ")}`);
+      }
+      if (m.source?.listing_title) {
+        lines.push(
+          `  bought as: "${m.source.listing_title}"${
+            m.source.variation ? ` — option: ${m.source.variation}` : ""
+          }`
+        );
+      }
+      return lines.join("\n");
+    })
     .join("\n");
 
   const prompt = `Create an Etsy listing for a handmade jewelry piece.
@@ -72,6 +128,8 @@ export async function POST(request: NextRequest) {
 DESIGN NAME: ${body.design_name}
 MATERIALS USED (exact composition of the piece):
 ${materialsList}
+
+A material's "appearance" line records how those exact beads actually look — the hex values are their true colors, which for dyed, coated, or treated stones can differ from the stone's natural coloring. Its "bought as" line is the supplier's verbatim listing title and option, which often names such treatments. Describe each material's color and look from these lines, never from the stone name's typical appearance; a material without them is the only case where the name alone should guide you. Use supplier titles as facts about the material, not as copy — write the listing in your own words.
 ${body.length_in ? `FINISHED LENGTH: ${body.length_in.toFixed(1)} inches\n` : ""}${
     body.labor_hours ? `HANDWORK TIME: ${body.labor_hours} hours\n` : ""
   }PRICE: $${body.price.toFixed(2)}
