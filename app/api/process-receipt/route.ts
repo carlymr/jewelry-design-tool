@@ -7,7 +7,10 @@ import { getSupabaseConfig } from "@/lib/supabase-config";
 import { isAuthorized } from "@/lib/api-token";
 import { CATEGORIES } from "@/lib/types";
 
-export const maxDuration = 120;
+// Long receipts can take a few minutes with adaptive thinking; keep this above
+// the SDK-side timeout so Vercel doesn't kill the function mid-generation and
+// skip the `finally` cleanup below.
+export const maxDuration = 300;
 
 const RECEIPTS_BUCKET = "receipts";
 
@@ -269,6 +272,9 @@ export async function POST(request: NextRequest) {
     // Streamed so the SDK's 10-minute non-streaming cap doesn't bound
     // max_tokens: adaptive thinking plus a 40-line receipt's verbatim
     // provenance overflowed a non-streaming budget and truncated the JSON.
+    // The stream helper applies the zod output format itself and exposes the
+    // result as parsed_output; a truncated or invalid response rejects
+    // finalMessage() with an AnthropicError (handled in the catch below).
     const response = await client.messages
       .stream({
         model: "claude-opus-4-8",
@@ -291,16 +297,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-    let parsed: z.infer<typeof ReceiptExtractionSchema> | null = null;
-    try {
-      parsed = ReceiptExtractionSchema.parse(JSON.parse(text));
-    } catch {
-      parsed = null;
-    }
+    const parsed = response.parsed_output;
     if (!parsed) {
       return NextResponse.json(
         { error: "Could not parse a structured result from the model." },
@@ -320,6 +317,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Rate limited by the Anthropic API. Try again in a minute." },
         { status: 429 }
+      );
+    }
+    if (error instanceof Anthropic.AnthropicError && !(error instanceof Anthropic.APIError)) {
+      // Structured-output parse failure (truncated or schema-invalid JSON).
+      return NextResponse.json(
+        { error: "Could not parse a structured result from the model — try again." },
+        { status: 502 }
       );
     }
     if (error instanceof Anthropic.APIError) {
