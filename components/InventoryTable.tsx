@@ -7,7 +7,6 @@ import {
   Upload,
   Download,
   Database,
-  Search,
   ChevronLeft,
   ChevronRight,
   Pencil,
@@ -16,6 +15,7 @@ import {
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
+import SearchField from "@/components/SearchField";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
 import { generateVisualForName } from "@/lib/visuals";
@@ -316,25 +316,29 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
     });
 
   return (
-    <div className="bg-gray-50 p-6 rounded-lg">
-      <div className="flex justify-between items-center mb-4">
+    <div className="bg-gray-50 p-3 sm:p-6 rounded-lg">
+      <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
         <h2 className="text-xl font-semibold">Materials Inventory</h2>
-        <div className="flex space-x-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={downloadCSV}
             disabled={materials.length === 0 || busy}
             className="flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+            aria-label="Export CSV"
+            title="Export CSV"
           >
-            <Download className="w-4 h-4 mr-1" />
-            Export CSV
+            <Download className="w-4 h-4 sm:mr-1" />
+            <span className="hidden sm:inline">Export CSV</span>
           </button>
           <button
             onClick={() => csvInputRef.current?.click()}
             disabled={busy}
             className="flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+            aria-label="Import CSV"
+            title="Import CSV"
           >
-            <Upload className="w-4 h-4 mr-1" />
-            Import CSV
+            <Upload className="w-4 h-4 sm:mr-1" />
+            <span className="hidden sm:inline">Import CSV</span>
           </button>
           <input
             ref={csvInputRef}
@@ -350,9 +354,11 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
           <button
             onClick={() => setShowAddForm(!showAddForm)}
             className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+            aria-label="Add material"
+            title="Add material"
           >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Material
+            <Plus className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Add Material</span>
           </button>
         </div>
       </div>
@@ -417,16 +423,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
       )}
 
       <div className="mb-4 flex flex-wrap gap-2">
-        <div className="relative flex-1 min-w-56">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <input
-            type="text"
-            placeholder="Search materials..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md"
-          />
-        </div>
+        <SearchField value={searchTerm} onChange={setSearchTerm} className="flex-1 min-w-56" />
         <BeadFilters
           familyFilter={familyFilter}
           sizeFilter={sizeFilter}
@@ -435,7 +432,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
         />
       </div>
 
-      <div className="bg-gray-100 border-b-2 border-gray-200 p-3 rounded-t-lg grid grid-cols-12 gap-3 text-sm font-medium text-gray-700">
+      <div className="bg-gray-100 border-b-2 border-gray-200 p-3 rounded-t-lg hidden md:grid grid-cols-12 gap-3 text-sm font-medium text-gray-700">
         <button
           className="col-span-4 text-left cursor-pointer hover:text-purple-600"
           onClick={() => toggleSort("name")}
@@ -464,7 +461,30 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
         <div className="col-span-1 text-center">Actions</div>
       </div>
 
-      <div className="bg-white border border-t-0 rounded-b-lg">
+      <div className="md:hidden mb-2 flex items-center gap-2 text-xs text-gray-600">
+        <label htmlFor="inventory-sort">Sort by</label>
+        <select
+          id="inventory-sort"
+          value={`${sortBy}:${sortOrder}`}
+          onChange={(e) => {
+            const [key, order] = e.target.value.split(":") as [SortKey, "asc" | "desc"];
+            setSortBy(key);
+            setSortOrder(order);
+          }}
+          className="px-2 py-1 border border-gray-300 rounded bg-white"
+        >
+          <option value="name:asc">Name A–Z</option>
+          <option value="name:desc">Name Z–A</option>
+          <option value="category:asc">Category A–Z</option>
+          <option value="category:desc">Category Z–A</option>
+          <option value="unit_cost:asc">Cost ↑</option>
+          <option value="unit_cost:desc">Cost ↓</option>
+          <option value="quantity:asc">Stock ↑</option>
+          <option value="quantity:desc">Stock ↓</option>
+        </select>
+      </div>
+
+      <div className="bg-white border md:border-t-0 rounded-lg md:rounded-t-none">
         {paged.map((material) =>
           edit?.material.id === material.id ? (
             <div
@@ -479,8 +499,8 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 }
               }}
             >
-              <div className="grid grid-cols-12 gap-3 items-center">
-                <div className="col-span-4 flex items-center gap-2 min-w-0">
+              <div className="grid grid-cols-12 gap-x-3 gap-y-2 items-center">
+                <div className="col-span-12 md:col-span-4 flex items-center gap-2 min-w-0">
                   <span className="w-6 flex justify-center shrink-0">
                     {material.visual && (
                       <BeadSwatch visual={material.visual} size={22} seed={material.id} />
@@ -496,7 +516,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                     autoFocus
                   />
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-6 md:col-span-2">
                   <select
                     value={edit.form.category}
                     onChange={(e) => setDraft({ category: e.target.value })}
@@ -511,7 +531,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                     ))}
                   </select>
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-6 md:col-span-2">
                   <input
                     type="number"
                     step="0.01"
@@ -520,20 +540,22 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                     onChange={(e) => setDraft({ unit_cost: e.target.value })}
                     disabled={busy}
                     aria-label="Cost per unit"
+                    placeholder="Cost"
                     className="w-full px-2 py-1 text-sm border border-gray-300 rounded disabled:bg-gray-100"
                   />
                 </div>
-                <div className="col-span-1">
+                <div className="col-span-4 md:col-span-1">
                   <input
                     type="text"
                     value={edit.form.unit_type}
                     onChange={(e) => setDraft({ unit_type: e.target.value })}
                     disabled={busy}
                     aria-label="Unit"
+                    placeholder="Unit"
                     className="w-full px-2 py-1 text-sm border border-gray-300 rounded disabled:bg-gray-100"
                   />
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-4 md:col-span-2">
                   <input
                     type="number"
                     min="0"
@@ -541,14 +563,15 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                     onChange={(e) => setDraft({ quantity: e.target.value })}
                     disabled={busy}
                     aria-label="In stock"
+                    placeholder="Stock"
                     className="w-full px-2 py-1 text-sm border border-gray-300 rounded disabled:bg-gray-100"
                   />
                 </div>
-                <div className="col-span-1 flex justify-center items-center gap-1">
+                <div className="col-span-4 md:col-span-1 flex justify-end md:justify-center items-center gap-1">
                   <button
                     onClick={handleSaveEdit}
                     disabled={busy}
-                    className="text-green-600 hover:text-green-700 hover:bg-green-50 p-1 rounded disabled:opacity-40"
+                    className="text-green-600 hover:text-green-700 hover:bg-green-50 p-2 md:p-1 rounded disabled:opacity-40"
                     title="Save changes"
                     aria-label="Save changes"
                   >
@@ -557,7 +580,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   <button
                     onClick={() => setEdit(null)}
                     disabled={busy}
-                    className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 p-1 rounded disabled:opacity-40"
+                    className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 p-2 md:p-1 rounded disabled:opacity-40"
                     title="Cancel"
                     aria-label="Cancel edit"
                   >
@@ -608,9 +631,9 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
           ) : (
             <div
               key={material.id}
-              className="grid grid-cols-12 gap-3 p-3 border-b border-gray-100 hover:bg-gray-50 last:border-b-0 items-center"
+              className="grid grid-cols-12 gap-x-3 gap-y-1 p-3 border-b border-gray-100 hover:bg-gray-50 last:border-b-0 items-center"
             >
-              <div className="col-span-4 text-sm text-gray-900 flex items-center gap-2 min-w-0">
+              <div className="col-span-12 md:col-span-4 text-sm text-gray-900 flex items-center gap-2 min-w-0">
                 <span className="w-6 flex justify-center shrink-0">
                   {material.visual && (
                     <BeadSwatch visual={material.visual} size={22} seed={material.id} />
@@ -618,12 +641,18 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 </span>
                 <span className="min-w-0 wrap-break-word leading-snug">{material.name}</span>
               </div>
-              <div className="col-span-2 text-sm text-gray-600">{material.category}</div>
-              <div className="col-span-2 text-sm text-gray-900">
-                ${material.unit_cost.toFixed(2)}
+              <div className="col-span-4 md:col-span-2 text-xs md:text-sm text-gray-600">
+                {material.category}
               </div>
-              <div className="col-span-1 text-sm text-gray-600">{material.unit_type}</div>
-              <div className="col-span-2">
+              <div className="col-span-4 md:col-span-2 text-xs md:text-sm text-gray-900">
+                ${material.unit_cost.toFixed(2)}
+                <span className="md:hidden text-gray-500">/{material.unit_type}</span>
+              </div>
+              <div className="hidden md:block col-span-1 text-sm text-gray-600">
+                {material.unit_type}
+              </div>
+              <div className="col-span-4 md:col-span-2 flex items-center gap-1">
+                <span className="md:hidden text-xs text-gray-500">Stock</span>
                 <input
                   // Remount when quantity changes elsewhere (row editing) — an
                   // uncontrolled input would otherwise show, and write back, a
@@ -640,11 +669,11 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500"
                 />
               </div>
-              <div className="col-span-1 flex justify-center items-center gap-1">
+              <div className="col-span-12 md:col-span-1 flex justify-end md:justify-center items-center gap-1">
                 <button
                   onClick={() => startEdit(material)}
                   disabled={busy || edit !== null}
-                  className="text-gray-300 hover:text-purple-600 p-1 rounded disabled:opacity-40 disabled:hover:text-gray-300"
+                  className="text-gray-500 hover:text-purple-600 p-2 md:p-1 rounded disabled:opacity-40 disabled:hover:text-gray-500"
                   title="Edit material"
                   aria-label="Edit material"
                 >
@@ -654,14 +683,15 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   material={material}
                   onUpdated={onChanged}
                   onError={setError}
-                  className="text-gray-300 hover:text-purple-600 p-1 rounded"
+                  className="text-gray-500 hover:text-purple-600 p-2 md:p-1 rounded"
                 />
                 <span aria-hidden className="w-px h-4 bg-gray-200" />
                 <button
                   onClick={() => handleDelete(material)}
                   disabled={busy}
-                  className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded"
+                  className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 md:p-1 rounded"
                   title="Delete material"
+                  aria-label="Delete material"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -711,6 +741,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
               disabled={safePage === 0}
               className="p-1.5 border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
               title="Previous page"
+              aria-label="Previous page"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -720,6 +751,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
               disabled={safePage >= pageCount - 1}
               className="p-1.5 border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
               title="Next page"
+              aria-label="Next page"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

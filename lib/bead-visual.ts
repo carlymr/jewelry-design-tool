@@ -40,6 +40,7 @@ export const BEAD_SHAPES = [
   "seed",
   "nugget",
   "flower",
+  "arrow",
 ] as const;
 
 // Non-bead components that can sit on a strand. Rendered with dedicated

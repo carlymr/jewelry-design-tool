@@ -6,10 +6,11 @@ import { LogOut } from "lucide-react";
 import { useSession } from "@/components/AuthGate";
 import { signOut } from "@/lib/auth";
 
+// Short labels keep the bar on one line at phone widths.
 const LINKS = [
-  { href: "/", label: "Design Board" },
-  { href: "/inventory", label: "Inventory" },
-  { href: "/pricing", label: "Pricing & Listing" },
+  { href: "/", label: "Design Board", short: "Board" },
+  { href: "/inventory", label: "Inventory", short: "Inventory" },
+  { href: "/pricing", label: "Pricing & Listing", short: "Pricing" },
 ];
 
 export default function NavBar() {
@@ -17,8 +18,11 @@ export default function NavBar() {
   const session = useSession();
   return (
     <header className="border-b border-gray-200 bg-white">
-      <nav className="max-w-6xl mx-auto px-6 flex items-center gap-6 h-12">
-        <span className="font-semibold text-purple-700">Jewelry Design Tool</span>
+      <nav className="max-w-6xl mx-auto px-3 sm:px-6 flex items-center gap-3 sm:gap-6 h-12 whitespace-nowrap">
+        <Link href="/" className="font-semibold text-purple-700" title="Jewelry Design Tool">
+          <span className="sm:hidden">JDT</span>
+          <span className="hidden sm:inline">Jewelry Design Tool</span>
+        </Link>
         {LINKS.map((link) => (
           <Link
             key={link.href}
@@ -29,7 +33,8 @@ export default function NavBar() {
                 : "border-transparent text-gray-600 hover:text-gray-900"
             }`}
           >
-            {link.label}
+            <span className="sm:hidden">{link.short}</span>
+            <span className="hidden sm:inline">{link.label}</span>
           </Link>
         ))}
         {session && (
