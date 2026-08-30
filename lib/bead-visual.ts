@@ -72,6 +72,39 @@ export const DRILL_LABELS: Record<DrillType, string> = {
   center: "Center-drilled (strings inline)",
 };
 
+// Face outline of a cabochon (or the recess of a bezel setting). Round vs
+// oval is decided by the dimensions, so 'oval' covers both. Stalactite and
+// trapiche slices get their own entries because their look is the outline
+// plus a signature pattern (concentric rings / six radial spokes).
+export const CAB_OUTLINES = [
+  "oval",
+  "rectangle",
+  "triangle",
+  "pentagon",
+  "hexagon",
+  "teardrop",
+  "marquise",
+  "stalactite",
+  "trapiche",
+  "freeform",
+] as const;
+export type CabOutline = (typeof CAB_OUTLINES)[number];
+export const CAB_OUTLINE_LABELS: Record<CabOutline, string> = {
+  oval: "Oval / round",
+  rectangle: "Rectangle / square",
+  triangle: "Triangle",
+  pentagon: "Pentagon",
+  hexagon: "Hexagon",
+  teardrop: "Teardrop / pear",
+  marquise: "Marquise",
+  stalactite: "Stalactite slice",
+  trapiche: "Trapiche slice",
+  freeform: "Freeform",
+};
+/** Shapes that carry a face outline. */
+export const hasOutline = (v: BeadVisual | null | undefined) =>
+  v?.shape === "cabochon" || v?.shape === "bezel";
+
 /** How a pendant-style element attaches to the strand. Bezel settings hang
  * from their own loop; cabochons depend on their drill type — an unrecorded
  * drill counts as needing hardware, because stone-shop cabs are undrilled
@@ -143,6 +176,12 @@ export const BeadVisualSchema = z.object({
     .nullable()
     .describe(
       "Cabochons only (null for everything else). How the stone is drilled, which decides how it attaches: 'none' = undrilled, needs a bezel setting or glue-on bail; 'front-back' = hole through the face, hangs from a pinch bail; 'top' = lengthwise hole across the top, strings directly and hangs as a pendant; 'center' = lengthwise hole through the middle, strings inline like a bead. Null when a cabochon is drilled but the receipt doesn't say how."
+    ),
+  outline: z
+    .enum(CAB_OUTLINES)
+    .nullable()
+    .describe(
+      "Cabochons and bezel settings only (null for everything else). Face outline of the stone, or of the recess a setting fits: 'oval' covers round and oval (the dimensions decide), 'rectangle' covers square/cushion/bar, 'teardrop' covers pear, 'marquise' for pointed-both-ends navettes, 'stalactite' for stalactite/agate slices (lumpy outline with concentric rings), 'trapiche' for trapiche slices (round-to-hexagonal with six radial spokes), 'freeform' for irregular cuts. Read it from a shape word in the name or the photo; null when unknown (drawn as oval)."
     ),
 });
 

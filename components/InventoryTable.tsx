@@ -27,7 +27,11 @@ import {
   sizeBucketOf,
   DRILL_TYPES,
   DRILL_LABELS,
+  CAB_OUTLINES,
+  CAB_OUTLINE_LABELS,
+  hasOutline,
   type DrillType,
+  type CabOutline,
 } from "@/lib/bead-visual";
 import { CATEGORIES, type Material, type NewMaterial, type Order } from "@/lib/types";
 
@@ -54,6 +58,8 @@ interface EditDraft {
   quantity: string;
   /** Cabochons only; "" = not recorded. */
   drill: DrillType | "";
+  /** Cabochons and bezel settings; "" = not recorded (drawn as oval). */
+  outline: CabOutline | "";
 }
 
 interface Props {
@@ -75,6 +81,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
   const [regenVisual, setRegenVisual] = useState(false);
   const regenTouched = useRef(false);
   const drillTouched = useRef(false);
+  const outlineTouched = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -191,11 +198,13 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
         unit_type: material.unit_type,
         quantity: String(material.quantity),
         drill: material.visual?.drill ?? "",
+        outline: material.visual?.outline ?? "",
       },
     });
     setRegenVisual(false);
     regenTouched.current = false;
     drillTouched.current = false;
+    outlineTouched.current = false;
     setError("");
   };
 
@@ -232,20 +241,26 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
         quantity,
       });
       const drill: DrillType | null = edit.form.drill || null;
+      const outline: CabOutline | null = edit.form.outline || null;
       let regenError: string | null = null;
       let visualWritten = false;
       if (regenVisual) {
         try {
           const visual = await generateVisualForName(edit.material.id, name);
           if (visual) {
-            // drill only belongs on cabochons; a drill the user actually set
-            // outranks the model's guess, an untouched select doesn't.
-            const next =
-              visual.shape !== "cabochon"
-                ? { ...visual, drill: null }
-                : drillTouched.current
-                  ? { ...visual, drill }
-                  : visual;
+            // drill only belongs on cabochons and outline on cabochons and
+            // bezels; a value the user actually set outranks the model's
+            // guess, an untouched select doesn't.
+            const next = {
+              ...visual,
+              drill:
+                visual.shape !== "cabochon" ? null : drillTouched.current ? drill : visual.drill,
+              outline: !hasOutline(visual)
+                ? null
+                : outlineTouched.current
+                  ? outline
+                  : visual.outline ?? null,
+            };
             await updateMaterial(edit.material.id, { visual: next });
             visualWritten = true;
           }
@@ -253,10 +268,20 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
           regenError = e instanceof Error ? e.message : "unknown error";
         }
       }
-      // A drill change must land even if the regen failed or returned nothing.
+      // A drill/outline change must land even if the regen failed or returned nothing.
       const prior = edit.material.visual;
-      if (!visualWritten && prior?.shape === "cabochon" && drill !== (prior.drill ?? null)) {
-        await updateMaterial(edit.material.id, { visual: { ...prior, drill } });
+      if (!visualWritten && prior) {
+        const drillChanged = prior.shape === "cabochon" && drill !== (prior.drill ?? null);
+        const outlineChanged = hasOutline(prior) && outline !== (prior.outline ?? null);
+        if (drillChanged || outlineChanged) {
+          await updateMaterial(edit.material.id, {
+            visual: {
+              ...prior,
+              drill: drillChanged ? drill : prior.drill ?? null,
+              outline: outlineChanged ? outline : prior.outline ?? null,
+            },
+          });
+        }
       }
       setEdit(null);
       if (regenError) {
@@ -653,6 +678,28 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                     {DRILL_TYPES.map((d) => (
                       <option key={d} value={d}>
                         {DRILL_LABELS[d]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {hasOutline(edit.material.visual) && (
+                <label className="mt-2 ml-4 inline-flex items-center gap-1.5 text-xs text-gray-600">
+                  Shape
+                  <select
+                    value={edit.form.outline}
+                    onChange={(e) => {
+                      outlineTouched.current = true;
+                      setDraft({ outline: e.target.value as CabOutline | "" });
+                    }}
+                    disabled={busy}
+                    aria-label={edit.material.visual?.shape === "bezel" ? "Recess shape" : "Face shape"}
+                    className="px-2 py-1 text-xs border border-gray-300 rounded disabled:bg-gray-100"
+                  >
+                    <option value="">Not recorded (oval)</option>
+                    {CAB_OUTLINES.map((o) => (
+                      <option key={o} value={o}>
+                        {CAB_OUTLINE_LABELS[o]}
                       </option>
                     ))}
                   </select>
