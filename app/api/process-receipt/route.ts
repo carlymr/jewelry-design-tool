@@ -41,7 +41,7 @@ const ExtractedItemSchema = z.object({
   name: z
     .string()
     .describe(
-      'Standardized name following "[Material/Color] [Item Type] [Size] [Shape/Detail]", e.g. "Gold Spacer Beads 4mm Round"'
+      'Standardized name in the fixed slot order "[Material] [Type] [Size] [Shape] [Cut]", e.g. "Kyanite Beads 3mm Round Faceted" — no descriptive colors unless part of the stone\'s name, cut words last'
     ),
   category: z
     .string()
@@ -141,11 +141,17 @@ const ReceiptExtractionSchema = z.object({
 
 const EXTRACTION_PROMPT = `Extract jewelry-making materials from this receipt or invoice.
 
-NAMING CONVENTION — every item name must follow this pattern:
-[Material/Color] [Item Type] [Size] [Shape/Detail]
-Examples: "Gold Spacer Beads 4mm Round", "Sterling Silver Wire 20ga", "Ocean Jasper Beads 8mm Round", "Silver Lobster Clasp 12mm".
+NAMING CONVENTION — every item name follows these slots, in this order, nothing else:
+[Material] [Type] [Size] [Shape] [Cut]
+Examples: "Kyanite Beads 3mm Round Faceted", "Galaxy Tiger Eye Beads 8mm Round", "Toho Seed Beads 11/0 Pale Honey Luster", "Iron Tiger Eye Cabochon 30x24mm Oval", "Antique Silver Bezel Setting 27mm Round", "Hematite Beads 4x2mm Arrow", "Sterling Silver Chain 2mm Cable", "Gold Spacer Beads 4mm Round".
+- Material: the stone or metal. Keep a variety, finish, or treatment word only when it is part of the stone's trade name or separates two distinct varieties (Black Agate, Ocean Jasper, Galaxy Tiger Eye, Champagne Gold Hematite, Light Green Garnet vs Moss Green Garnet, Synthetic Hematite, Monarch Opal Doublet). Drop plain descriptive colors — "Blue Kyanite" is "Kyanite", "Dark Red Garnet" is "Garnet"; the stored visual carries color. For metal findings the plating IS the material (Antique Silver, Gold, Gunmetal, Rhodium, Sterling Silver).
+- Type: Beads, Seed Beads, Spacer Beads, Cabochon, Bezel Setting, Pinch Bail, Chain, Clasp, Charms, Jump Rings, Connector, Links, Cord, Wire, Thread.
+- Size: millimeters; "LxW" for non-round; ranges like "3-4mm"; seed beads by aught ("11/0"); cabochons by face ("30x24mm"); chain by link size.
+- Shape: Round, Rondelle, Cube, Tube, Chip, Nugget, Arrow, Teardrop, Oval, Hexagon, Bicone, Flower… Omit only where the type implies it (Seed Beads, Chain, Cord).
+- Cut, last: Faceted, Star Cut, Matte, AB — omitted when smooth. "Faceted" always comes after the shape ("Round Faceted", never "Faceted Round").
+- Seed beads: "Toho Seed Beads 11/0" + the color name as the maker prints it ("Pale Honey Luster"); no color codes — those belong in the provenance fields.
 - Never include pack counts or quantities in the name (no "1200Pcs", "50-Pack") — quantity is a separate field.
-- Strip marketing language ("Premium", "for Jewelry Making DIY", brand slogans). Keep only what identifies the material.
+- Strip marketing language ("Premium", "Genuine", "Grade AAA", "for Jewelry Making DIY", brand slogans). Keep only what identifies the material.
 
 SPLITTING ASSORTMENTS — this is important:
 - If a line item contains multiple distinct variants (different sizes, colors, materials, or finishes), split it into one extracted item per variant. Example: "1200Pcs Smooth Round Spacer Beads (4mm, 6mm, 8mm, Silver & Gold)" is 6 distinct items — silver and gold in each of the three sizes.
@@ -164,7 +170,7 @@ PICK-YOUR-STONE CABOCHONS — one-of-a-kind stones sold through generic listings
 - Calibrated-stone listings (exact size chosen from a dropdown, Etsy quantity may exceed 1) use the chosen size in the name and the real Etsy quantity.
 
 PENDANT BLANKS, BEZEL SETTINGS, AND BAILS:
-- Bezel blanks / cabochon bases / pendant settings / mountings are Findings. Name them by finish + type + the RECESS size (the stone they fit), not the outer size: "Antique Silver Plated Brass Mountings 44x37 mm (27 mm blank)" → "Antique Silver Bezel Setting 27mm Round"; "Setting For 30mm Cab, 46x31mm overall" → "Platinum Brass Bezel Setting 30mm Round". Keep the recess shape (Round, Oval, Teardrop, Hexagon…) when stated.
+- Bezel blanks / cabochon bases / pendant settings / mountings are Findings. Name them by finish + type + the RECESS size (the stone they fit), not the outer size: "Antique Silver Plated Brass Mountings 44x37 mm (27 mm blank)" → "Antique Silver Bezel Setting 27mm Round"; "Setting For 30mm Cab, 46x31mm overall" → "Platinum Bezel Setting 30mm Round". Keep the recess shape (Round, Oval, Teardrop, Hexagon…) when stated.
 - Bails (pinch bails, pendant bails, leaf/flower/branch bails) are Findings named finish + "Pinch Bail" + size/style: "Rhodium Sterling Silver Pinch Bail Small Branch".
 - The Etsy quantity is almost always 1 for these; the real count is in the variation ("Select Pieces: 5 pcs", "Number of Settings: 5", "quantity: 10 pieces") or a leading number in the title ("10 Hexagonal Charms"). Use it for estimated_units.
 - A setting sold WITH a glass cabochon is still one item (the setting); mention the included stone in notes.
