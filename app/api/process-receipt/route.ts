@@ -170,7 +170,7 @@ PICK-YOUR-STONE CABOCHONS — one-of-a-kind stones sold through generic listings
 - Calibrated-stone listings (exact size chosen from a dropdown, Etsy quantity may exceed 1) use the chosen size in the name and the real Etsy quantity.
 
 PENDANT BLANKS, BEZEL SETTINGS, AND BAILS:
-- Bezel blanks / cabochon bases / pendant settings / mountings are Findings. Name them by finish + type + the RECESS size (the stone they fit), not the outer size: "Antique Silver Plated Brass Mountings 44x37 mm (27 mm blank)" → "Antique Silver Bezel Setting 27mm Round"; "Setting For 30mm Cab, 46x31mm overall" → "Platinum Brass Bezel Setting 30mm Round". Keep the recess shape (Round, Oval, Teardrop, Hexagon…) when stated.
+- Bezel blanks / cabochon bases / pendant settings / mountings are Findings. Name them by finish + type + the RECESS size (the stone they fit), not the outer size: "Antique Silver Plated Brass Mountings 44x37 mm (27 mm blank)" → "Antique Silver Bezel Setting 27mm Round"; "Setting For 30mm Cab, 46x31mm overall" → "Platinum Bezel Setting 30mm Round". Keep the recess shape (Round, Oval, Teardrop, Hexagon…) when stated.
 - Bails (pinch bails, pendant bails, leaf/flower/branch bails) are Findings named finish + "Pinch Bail" + size/style: "Rhodium Sterling Silver Pinch Bail Small Branch".
 - The Etsy quantity is almost always 1 for these; the real count is in the variation ("Select Pieces: 5 pcs", "Number of Settings: 5", "quantity: 10 pieces") or a leading number in the title ("10 Hexagonal Charms"). Use it for estimated_units.
 - A setting sold WITH a glass cabochon is still one item (the setting); mention the included stone in notes.
