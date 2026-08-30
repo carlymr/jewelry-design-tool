@@ -39,7 +39,7 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 
 - **Cost breakdown from actual designs**: pick a saved design and its exact bead composition (plus manually-added extras like clasps and wire) becomes the materials cost — no re-entry
 - **Pricing calculator**: labor hours × hourly rate, overhead %, and markup % produce total cost, selling price, and profit; business-wide rates persist across designs
-- **Etsy listing generator**: Claude drafts an SEO title, description, and tags from the real composition, length, and price — fully editable, with copy/download, and saved with the design
+- **Etsy listing generator**: Claude drafts an SEO title, description, and tags from the real composition, length, and price — using each material's recorded colors/finish and supplier listing text, so dyed or treated stones read true, not by the stone name's stock coloring — fully editable, with copy/download, and saved with the design
 
 ## Setup
 
@@ -113,6 +113,7 @@ lib/
   photo-upload.ts              # shared downscale + transient-upload helpers
   designs.ts / materials.ts    # Supabase CRUD (+ provenance-aware import matching)
   orders.ts                    # order upsert, receipt archive upload + signed URLs
+  settings.ts                  # per-user pricing/listing settings (user_settings table)
 supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance)
 ```
 

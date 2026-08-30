@@ -143,8 +143,18 @@ export default function PricingStudio({ materials }: Props) {
 
   // Debounced DB write so typing in a template doesn't upsert per keystroke;
   // localStorage is written synchronously as the safety net in between.
+  const SETTINGS_SAVE_ERROR =
+    "Couldn't save settings to your account — they're kept on this device for now.";
   const settingsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSettings = useRef<Settings | null>(null);
+  const flushSettings = (next: Settings) =>
+    savePricingSettings(next)
+      .then(() => {
+        if (pendingSettings.current === next) pendingSettings.current = null;
+        // A transient failure shouldn't leave the banner up after a save lands.
+        setError((e) => (e === SETTINGS_SAVE_ERROR ? "" : e));
+      })
+      .catch(() => setError(SETTINGS_SAVE_ERROR));
   const updateSettings = (fields: Partial<Settings>) => {
     const next = { ...settings, ...fields };
     setSettings(next);
@@ -155,17 +165,14 @@ export default function PricingStudio({ materials }: Props) {
     }
     pendingSettings.current = next;
     if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current);
-    settingsSaveTimer.current = setTimeout(() => {
-      savePricingSettings(next)
-        .then(() => {
-          if (pendingSettings.current === next) pendingSettings.current = null;
-        })
-        .catch(() =>
-          setError(
-            "Couldn't save settings to your account — they're kept on this device for now."
-          )
-        );
-    }, 800);
+    settingsSaveTimer.current = setTimeout(() => flushSettings(next), 800);
+  };
+  // The panels' explicit Save buttons: write immediately and re-collapse, so
+  // a long templates panel doesn't stay parked above the listing.
+  const saveSettingsAndClose = (collapse: () => void) => {
+    if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current);
+    if (pendingSettings.current) flushSettings(pendingSettings.current);
+    collapse();
   };
   useEffect(
     () => () => {
@@ -524,8 +531,12 @@ export default function PricingStudio({ materials }: Props) {
             </button>
             <button
               onClick={generateListing}
+              // Gated on settingsLoaded so a click right after page load can't
+              // draft a listing (and price it) from default rates and empty
+              // templates while the account's real settings are still in flight.
               disabled={
                 generating ||
+                !settingsLoaded ||
                 !design ||
                 (design.beads?.length ?? 0) + extras.length === 0
               }
@@ -595,10 +606,19 @@ export default function PricingStudio({ materials }: Props) {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
                     />
                   </div>
-                  <p className="text-xs text-gray-500">
-                    Applied to every listing in the store and saved to your
-                    account.
-                  </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-gray-500">
+                      Applied to every listing in the store and saved to your
+                      account.
+                    </p>
+                    <button
+                      onClick={() => saveSettingsAndClose(() => setShowTemplates(false))}
+                      className="flex items-center px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm shrink-0"
+                    >
+                      <Save className="w-4 h-4 mr-1" />
+                      Save &amp; close
+                    </button>
+                  </div>
                 </>
               )}
             </div>
@@ -735,9 +755,18 @@ export default function PricingStudio({ materials }: Props) {
                         />
                       </div>
                     ))}
-                    <p className="text-xs text-gray-500">
-                      Business-wide rates, saved to your account.
-                    </p>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-gray-500">
+                        Business-wide rates, saved to your account.
+                      </p>
+                      <button
+                        onClick={() => saveSettingsAndClose(() => setShowRates(false))}
+                        className="flex items-center px-2 py-1 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-xs shrink-0"
+                      >
+                        <Save className="w-3 h-3 mr-1" />
+                        Save &amp; close
+                      </button>
+                    </div>
                   </>
                 )}
               </div>
