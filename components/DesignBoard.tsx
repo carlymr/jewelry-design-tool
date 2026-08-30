@@ -11,6 +11,8 @@ import {
   Eraser,
   ZoomIn,
   ZoomOut,
+  Pin,
+  Lock,
 } from "lucide-react";
 import BeadSwatch, { Bead } from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
@@ -34,7 +36,7 @@ import {
   type BeadVisual,
 } from "@/lib/bead-visual";
 import { curveGeometry, curvePath } from "@/lib/strand-layout";
-import type { Design, DesignBead, Material } from "@/lib/types";
+import { presentCategories, type Design, type DesignBead, type Material } from "@/lib/types";
 
 const MM_PER_INCH = 25.4;
 // CSS reference pixel: 96px per inch, so this renders beads at ~life size.
@@ -68,6 +70,9 @@ const PLACEABLE_CATEGORIES = new Set(["Beads", "Cabochons", "Findings"]);
 // Working-copy draft persisted to localStorage so navigation, reloads, and
 // tab closes can't lose unsaved strand work.
 const DRAFT_KEY = "design-board-draft";
+// Materials the user has pinned to the palette's working set. Persisted
+// separately from the draft: pins outlive the design you were working on.
+const PINS_KEY = "design-board-pins";
 
 interface Props {
   materials: Material[];
@@ -103,6 +108,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // a shared browser.
   const session = useSession();
   const draftKey = `${DRAFT_KEY}:${session?.user.id ?? "local"}`;
+  const pinsKey = `${PINS_KEY}:${session?.user.id ?? "local"}`;
 
   // --- design state (working copy) ---
   const [designs, setDesigns] = useState<Design[]>([]);
@@ -144,6 +150,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [familyFilter, setFamilyFilter] = useState("");
   const [sizeFilter, setSizeFilter] = useState("");
+  // Manually pinned material ids, in the order they were pinned.
+  const [pinned, setPinned] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -216,6 +224,34 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     }
   }, [dirty, currentId, name, targetMm, beads, draftKey]);
 
+  // --- pinned materials: restore per account, then persist every change ---
+  // The ref holds the key the current `pinned` came from, so the persist
+  // effect can't write one account's pins into another's slot.
+  const pinsRestoredFor = useRef<string | null>(null);
+  useEffect(() => {
+    let saved: unknown = null;
+    try {
+      const raw = localStorage.getItem(pinsKey);
+      saved = raw ? JSON.parse(raw) : null;
+    } catch {
+      // A corrupt pin list shouldn't break the board.
+    }
+    setPinned(Array.isArray(saved) ? saved.filter((id) => typeof id === "string") : []);
+    pinsRestoredFor.current = pinsKey;
+  }, [pinsKey]);
+
+  useEffect(() => {
+    if (pinsRestoredFor.current !== pinsKey) return;
+    try {
+      localStorage.setItem(pinsKey, JSON.stringify(pinned));
+    } catch {
+      // Quota/private-mode failures just lose the pins, nothing else.
+    }
+  }, [pinned, pinsKey]);
+
+  const togglePin = (id: string) =>
+    setPinned((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
   // --- load designs ---
   useEffect(() => {
     listDesigns()
@@ -278,16 +314,49 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   };
 
   // --- palette ---
+  // Everything that can be placed on a strand, before the user's filters.
+  const placeable = useMemo(
+    () => materials.filter((m) => PLACEABLE_CATEGORIES.has(m.category) || m.visual),
+    [materials]
+  );
+  // Only offer types the palette actually holds — including the odd item
+  // filed outside PLACEABLE_CATEGORIES that earned a visual anyway.
+  const categoryOptions = useMemo(() => presentCategories(placeable), [placeable]);
+
+  // Distinct materials on the strand, in the order they first appear on it.
+  const strandMaterialIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const b of beads) ids.add(b.material_id);
+    return ids;
+  }, [beads]);
+
+  // The working set: what you're building with right now. Materials already on
+  // the strand stay reachable automatically, and pinning keeps one around after
+  // it leaves the strand. Both ignore the search and filters, so switching
+  // between a few beads no longer means re-searching for each one.
+  const workingSet = useMemo(() => {
+    const ids = [...strandMaterialIds, ...pinned.filter((id) => !strandMaterialIds.has(id))];
+    return ids
+      .map((id) => materialById.get(id))
+      .filter((m): m is Material => m !== undefined);
+  }, [strandMaterialIds, pinned, materialById]);
+
+  const workingSetIds = useMemo(
+    () => new Set(workingSet.map((m) => m.id)),
+    [workingSet]
+  );
+
   const palette = useMemo(() => {
     const term = paletteSearch.toLowerCase();
-    return materials
-      .filter((m) => PLACEABLE_CATEGORIES.has(m.category) || m.visual)
+    return placeable
+      // The working set is rendered above; don't card it twice.
+      .filter((m) => !workingSetIds.has(m.id))
       .filter((m) => !categoryFilter || m.category === categoryFilter)
       .filter((m) => m.name.toLowerCase().includes(term))
       .filter((m) => !familyFilter || colorFamilyOf(m.visual) === familyFilter)
       .filter((m) => !sizeFilter || sizeBucketOf(m.visual) === sizeFilter)
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [materials, paletteSearch, categoryFilter, familyFilter, sizeFilter]);
+  }, [placeable, workingSetIds, paletteSearch, categoryFilter, familyFilter, sizeFilter]);
 
   // --- derived strand geometry ---
   const strand = useMemo(() => {
@@ -738,6 +807,79 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   };
 
   const dropX = dropIndex === null ? null : marginLeft + sAtGap(dropIndex) * pxPerMm;
+
+  /** One palette entry — used by both the working set and the filtered grid. */
+  const paletteCard = (m: Material) => {
+    const isPinned = pinned.includes(m.id);
+    const onStrand = strandMaterialIds.has(m.id);
+    return (
+      <div
+        key={m.id}
+        className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-purple-400 group"
+      >
+        <button
+          onClick={() => addBead(m.id)}
+          className="flex items-center gap-3 flex-1 text-left min-w-0"
+          title="Add to strand"
+        >
+          <span className="w-9 flex justify-center shrink-0">
+            <BeadSwatch visual={m.visual} size={32} seed={m.id} />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm text-gray-900 leading-snug">{m.name}</span>
+            {m.source?.variation && (
+              <span className="block text-xs text-gray-400 font-mono truncate">
+                {m.source.variation}
+              </span>
+            )}
+            <span className="block text-xs text-gray-500">
+              {m.quantity} in stock · ${m.unit_cost.toFixed(3)}/ea
+              {m.visual?.shape === "chain" && (
+                <span className="text-purple-600"> · adds 1&quot; per click</span>
+              )}
+              {pendantAttachment(m.visual) === "placeholder" && (
+                <span className="text-amber-600"> · needs setting</span>
+              )}
+            </span>
+          </span>
+          <Plus className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
+        </button>
+        {onStrand ? (
+          // Already held by the design: pinning it would change nothing you
+          // could see, so this reads as status, not a control.
+          <span
+            className="p-1 shrink-0 text-purple-400"
+            title="In the design — stays here while it's on the strand"
+          >
+            <Lock className="w-3.5 h-3.5" />
+          </span>
+        ) : (
+          <button
+            onClick={() => togglePin(m.id)}
+            className={`p-1 shrink-0 ${
+              isPinned ? "text-purple-600" : "text-gray-300 hover:text-purple-600"
+            }`}
+            aria-pressed={isPinned}
+            title={isPinned ? "Unpin from working set" : "Pin to working set"}
+          >
+            <Pin className={`w-3.5 h-3.5 ${isPinned ? "fill-current" : ""}`} />
+          </button>
+        )}
+        <PhotoVisualButton material={m} onUpdated={onMaterialsChanged} onError={setError} />
+        <button
+          onClick={() => regenerateVisual(m)}
+          disabled={regeneratingId === m.id}
+          className="p-1 text-gray-300 hover:text-purple-600 shrink-0"
+          title="Regenerate artwork"
+        >
+          <RefreshCw
+            className={`w-3.5 h-3.5 ${regeneratingId === m.id ? "animate-spin text-purple-600" : ""}`}
+          />
+        </button>
+      </div>
+    );
+  };
+
 
   return (
     <div
@@ -1287,25 +1429,33 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             </span>
           )}
         </div>
+        {workingSet.length > 0 && (
+          <div className="mb-4 bg-purple-50/70 border border-purple-200 rounded-lg p-3">
+            {pinned.length > 0 && (
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={() => setPinned([])}
+                  className="text-xs text-purple-700/70 hover:text-purple-900"
+                >
+                  Unpin all
+                </button>
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {workingSet.map(paletteCard)}
+            </div>
+          </div>
+        )}
         <div className="mb-3 flex flex-wrap gap-2">
           <SearchField
             value={paletteSearch}
             onChange={setPaletteSearch}
             className="flex-1 min-w-48"
           />
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
-          >
-            <option value="">All types</option>
-            {[...PLACEABLE_CATEGORIES].map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
           <BeadFilters
+            categories={categoryOptions}
+            categoryFilter={categoryFilter}
+            onCategoryChange={setCategoryFilter}
             familyFilter={familyFilter}
             sizeFilter={sizeFilter}
             onFamilyChange={setFamilyFilter}
@@ -1314,62 +1464,13 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         </div>
         {palette.length === 0 ? (
           <p className="text-sm text-gray-500 py-4 text-center">
-            Nothing to place yet — import a receipt or add materials from the
-            Inventory page.
+            {workingSet.length > 0
+              ? "Nothing else matches — clear the search or filters to see more."
+              : "Nothing to place yet — import a receipt or add materials from the Inventory page."}
           </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {palette.map((m) => (
-              <div
-                key={m.id}
-                className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-purple-400 group"
-              >
-                <button
-                  onClick={() => addBead(m.id)}
-                  className="flex items-center gap-3 flex-1 text-left min-w-0"
-                  title="Add to strand"
-                >
-                  <span className="w-9 flex justify-center shrink-0">
-                    <BeadSwatch visual={m.visual} size={32} seed={m.id} />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm text-gray-900 leading-snug">
-                      {m.name}
-                    </span>
-                    {m.source?.variation && (
-                      <span className="block text-xs text-gray-400 font-mono truncate">
-                        {m.source.variation}
-                      </span>
-                    )}
-                    <span className="block text-xs text-gray-500">
-                      {m.quantity} in stock · ${m.unit_cost.toFixed(3)}/ea
-                      {m.visual?.shape === "chain" && (
-                        <span className="text-purple-600"> · adds 1&quot; per click</span>
-                      )}
-                      {pendantAttachment(m.visual) === "placeholder" && (
-                        <span className="text-amber-600"> · needs setting</span>
-                      )}
-                    </span>
-                  </span>
-                  <Plus className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
-                </button>
-                <PhotoVisualButton
-                  material={m}
-                  onUpdated={onMaterialsChanged}
-                  onError={setError}
-                />
-                <button
-                  onClick={() => regenerateVisual(m)}
-                  disabled={regeneratingId === m.id}
-                  className="p-1 text-gray-300 hover:text-purple-600 shrink-0"
-                  title="Regenerate artwork"
-                >
-                  <RefreshCw
-                    className={`w-3.5 h-3.5 ${regeneratingId === m.id ? "animate-spin text-purple-600" : ""}`}
-                  />
-                </button>
-              </div>
-            ))}
+            {palette.map(paletteCard)}
           </div>
         )}
       </div>

@@ -10,6 +10,16 @@ export const CATEGORIES = [
   "Other",
 ] as const;
 
+/** The categories actually present in a set of materials, in CATEGORIES order
+ * with any unrecognized ones (free-text rows) appended alphabetically. Filter
+ * dropdowns build their options from this so they never offer an empty choice. */
+export function presentCategories(materials: { category: string }[]): string[] {
+  const present = new Set(materials.map((m) => m.category).filter(Boolean));
+  const known = CATEGORIES.filter((c) => present.has(c)) as string[];
+  const extra = [...present].filter((c) => !known.includes(c)).sort();
+  return [...known, ...extra];
+}
+
 /** Where a material came from — the listing details that identify it. */
 export interface MaterialSource {
   listing_title: string;
