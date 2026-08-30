@@ -40,6 +40,7 @@ export const BEAD_SHAPES = [
   "seed",
   "nugget",
   "flower",
+  "arrow",
 ] as const;
 
 // Non-bead components that can sit on a strand. Rendered with dedicated
@@ -95,7 +96,7 @@ export const BeadVisualSchema = z.object({
   shape: z
     .enum(VISUAL_SHAPES)
     .describe(
-      "Closest basic shape. Beads: use 'chip' or 'nugget' for irregular stones, 'octagon' for cornerless/faceted cubes, 'flower' for carved flower beads. Components: 'chain' for link chain, 'jump-ring' for plain rings, 'lobster-clasp' for lobster/spring clasps, 'toggle-clasp' for toggle ring-and-bar clasps, 'connector' for straight bars with a loop at each end, 'figure-eight' for infinity links and double-ring connectors, 'triangle' for triangle charms and open geometric connectors, 'cabochon' for flat-backed focal stones (drawn hanging as a pendant)."
+      "Closest basic shape. Beads: use 'chip' or 'nugget' for irregular stones, 'octagon' for cornerless/faceted cubes, 'flower' for carved flower beads, 'arrow' for chevron / arrowhead beads (a > pointed along the strand). Components: 'chain' for link chain, 'jump-ring' for plain rings, 'lobster-clasp' for lobster/spring clasps, 'toggle-clasp' for toggle ring-and-bar clasps, 'connector' for straight bars with a loop at each end, 'figure-eight' for infinity links and double-ring connectors, 'triangle' for triangle charms and open geometric connectors, 'cabochon' for flat-backed focal stones (drawn hanging as a pendant)."
     ),
   length_mm: z
     .number()

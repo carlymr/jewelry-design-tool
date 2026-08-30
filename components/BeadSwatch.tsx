@@ -118,6 +118,12 @@ function shapeElement(visual: BeadVisual, L: number, W: number, rand: () => numb
       const d = blobPath(fillBounds(points, L, W));
       return { el: (props: ShapeProps) => <path d={d} {...props} /> };
     }
+    case "arrow": {
+      // Chevron pointing along the strand (>), notched at the back so a run
+      // of them nests the way arrow beads do when strung.
+      const pts = `0,0 ${L * 0.62},0 ${L},${W / 2} ${L * 0.62},${W} 0,${W} ${L * 0.38},${W / 2}`;
+      return { el: (props: ShapeProps) => <polygon points={pts} {...props} /> };
+    }
     case "teardrop": {
       const r = W * 0.35;
       const d = `M 0 ${W / 2} Q ${L * 0.35} ${W * 0.04} ${L * 0.7} ${W / 2 - r} A ${r} ${r} 0 1 1 ${L * 0.7} ${W / 2 + r} Q ${L * 0.35} ${W * 0.96} 0 ${W / 2} Z`;

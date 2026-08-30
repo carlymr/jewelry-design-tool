@@ -12,6 +12,7 @@ import {
   Eraser,
   ZoomIn,
   ZoomOut,
+  X,
 } from "lucide-react";
 import BeadSwatch, { Bead } from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
@@ -1291,8 +1292,19 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               placeholder="Search materials…"
               value={paletteSearch}
               onChange={(e) => setPaletteSearch(e.target.value)}
-              className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm"
+              className="w-full pl-10 pr-8 py-2 border border-gray-300 rounded-md text-sm"
             />
+            {paletteSearch && (
+              <button
+                type="button"
+                onClick={() => setPaletteSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded"
+                aria-label="Clear search"
+                title="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
           <select
             value={categoryFilter}
