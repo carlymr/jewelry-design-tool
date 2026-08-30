@@ -5,6 +5,7 @@ import {
   Copy,
   DollarSign,
   Download,
+  Pencil,
   Plus,
   Save,
   Search,
@@ -15,6 +16,11 @@ import BeadSwatch from "@/components/BeadSwatch";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { listDesigns, updateDesign } from "@/lib/designs";
+import {
+  loadPricingSettings,
+  savePricingSettings,
+  type PricingSettings as Settings,
+} from "@/lib/settings";
 import type {
   Design,
   DesignExtra,
@@ -39,16 +45,9 @@ interface PricingDraft {
 
 // Business-wide knobs, shared across designs (kept as strings so inputs can
 // be cleared while typing, like the original artifact tool). Templates keep
-// title/description format consistent across the whole store.
-interface Settings {
-  hourly_rate: string;
-  overhead_pct: string;
-  markup_pct: string;
-  style_guidelines: string;
-  title_template: string;
-  description_template: string;
-}
-
+// title/description format consistent across the whole store. The store of
+// record is user_settings in the DB (lib/settings.ts); localStorage is a
+// cache and offline fallback.
 const DEFAULT_SETTINGS: Settings = {
   hourly_rate: "25",
   overhead_pct: "15",
@@ -58,16 +57,16 @@ const DEFAULT_SETTINGS: Settings = {
   description_template: "",
 };
 
-function loadSettings(key: string): Settings {
+function loadLocalSettings(key: string): Settings | null {
   try {
     // Fall back to the pre-auth global key so rates saved before per-user
     // namespacing carry over to the first account that signs in.
     const raw = localStorage.getItem(key) ?? localStorage.getItem(SETTINGS_KEY);
     if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
   } catch {
-    // fall through to defaults
+    // fall through to null
   }
-  return DEFAULT_SETTINGS;
+  return null;
 }
 
 interface Props {
@@ -95,6 +94,11 @@ export default function PricingStudio({ materials }: Props) {
   const [generating, setGenerating] = useState(false);
 
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  // Both config panels start collapsed: they're set-once knobs, and the point
+  // of the page is the listing, not the configuration.
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showRates, setShowRates] = useState(false);
   const [showExtraSearch, setShowExtraSearch] = useState(false);
   const [extraSearch, setExtraSearch] = useState("");
 
@@ -103,9 +107,76 @@ export default function PricingStudio({ materials }: Props) {
     [materials]
   );
 
+  // --- settings: DB first, localStorage as fallback (and one-time migration
+  // source for pre-0009 users, whose only copy is local) ---
   useEffect(() => {
-    setSettings(loadSettings(settingsKey));
+    let cancelled = false;
+    (async () => {
+      const local = loadLocalSettings(settingsKey);
+      try {
+        const remote = await loadPricingSettings();
+        if (cancelled) return;
+        if (remote) {
+          const merged = { ...DEFAULT_SETTINGS, ...remote };
+          setSettings(merged);
+          try {
+            localStorage.setItem(settingsKey, JSON.stringify(merged));
+          } catch {
+            // cache refresh only
+          }
+        } else if (local) {
+          setSettings(local);
+          savePricingSettings(local).catch(() => {
+            // still cached locally; the next edit retries
+          });
+        }
+      } catch {
+        if (!cancelled && local) setSettings(local);
+      } finally {
+        if (!cancelled) setSettingsLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [settingsKey]);
+
+  // Debounced DB write so typing in a template doesn't upsert per keystroke;
+  // localStorage is written synchronously as the safety net in between.
+  const settingsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSettings = useRef<Settings | null>(null);
+  const updateSettings = (fields: Partial<Settings>) => {
+    const next = { ...settings, ...fields };
+    setSettings(next);
+    try {
+      localStorage.setItem(settingsKey, JSON.stringify(next));
+    } catch {
+      // losing the cache is fine
+    }
+    pendingSettings.current = next;
+    if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current);
+    settingsSaveTimer.current = setTimeout(() => {
+      savePricingSettings(next)
+        .then(() => {
+          if (pendingSettings.current === next) pendingSettings.current = null;
+        })
+        .catch(() =>
+          setError(
+            "Couldn't save settings to your account — they're kept on this device for now."
+          )
+        );
+    }, 800);
+  };
+  useEffect(
+    () => () => {
+      // Flush a pending settings write on unmount so navigating away right
+      // after an edit doesn't drop it.
+      if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current);
+      if (pendingSettings.current)
+        savePricingSettings(pendingSettings.current).catch(() => {});
+    },
+    []
+  );
 
   // --- read any unsaved draft (must be declared before the persist effect:
   // both run on mount, and the clean-state persist would clear it first) ---
@@ -135,16 +206,6 @@ export default function PricingStudio({ materials }: Props) {
       // Quota/private-mode failures just lose the safety net, nothing else.
     }
   }, [dirty, selectedId, laborHours, extras, listing, draftKey]);
-
-  const updateSettings = (fields: Partial<Settings>) => {
-    const next = { ...settings, ...fields };
-    setSettings(next);
-    try {
-      localStorage.setItem(settingsKey, JSON.stringify(next));
-    } catch {
-      // losing persistence is fine
-    }
-  };
 
   const applyDesign = (design: Design) => {
     setSelectedId(design.id);
@@ -408,7 +469,7 @@ export default function PricingStudio({ materials }: Props) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Design picker */}
       <div className="bg-gray-50 p-4 rounded-lg flex flex-wrap items-center gap-3">
         <select
@@ -443,162 +504,247 @@ export default function PricingStudio({ materials }: Props) {
         </div>
       )}
 
-      {/* Materials from the design */}
-      <div className="bg-gray-50 p-6 rounded-lg">
-        <h2 className="text-xl font-semibold mb-4">Materials Used</h2>
-        {missingCount > 0 && (
-          <div className="mb-3 px-3 py-2 bg-amber-100 border border-amber-300 text-amber-800 rounded text-sm">
-            {missingCount} material{missingCount > 1 ? "s" : ""} in this design{" "}
-            {missingCount > 1 ? "are" : "is"} no longer in inventory and priced
-            as $0 — totals below understate the real cost.
-          </div>
-        )}
-        {beadUsage.length === 0 && extras.length === 0 && (
-          <p className="text-sm text-gray-500 mb-3">
-            This design has no beads yet — add some on the Design Board.
-          </p>
-        )}
-        <div className="space-y-2">
-          {beadUsage.map((u) => (
-            <div
-              key={u.materialId}
-              className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200"
+      {/* The listing is the point of the page, so it leads (and comes first on
+          mobile); costs and materials sit in a sidebar on desktop. */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+        {/* Main column: the listing */}
+        <div className="lg:col-span-3 bg-gray-50 p-6 rounded-lg">
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <h2 className="text-xl font-semibold flex-1">Etsy Listing</h2>
+            <button
+              onClick={() => setShowTemplates((s) => !s)}
+              className={`flex items-center px-3 py-2 border rounded-md text-sm ${
+                showTemplates
+                  ? "bg-purple-100 border-purple-300 text-purple-800"
+                  : "bg-white border-gray-300 hover:bg-gray-100"
+              }`}
             >
-              <span className="w-9 flex justify-center shrink-0">
-                <BeadSwatch
-                  visual={u.material?.visual ?? null}
-                  size={28}
-                  seed={u.materialId}
-                />
-              </span>
-              <span className="flex-1 text-sm text-gray-900 min-w-0">
-                {u.material?.name ?? "(material no longer in inventory)"}
-              </span>
-              <span className="text-sm text-gray-600 w-20 text-right">
-                × {u.count}
-              </span>
-              <span className="text-sm text-gray-600 w-24 text-right">
-                ${(u.material?.unit_cost ?? 0).toFixed(3)}/ea
-              </span>
-              <span className="text-sm font-medium w-20 text-right">
-                ${u.cost.toFixed(2)}
-              </span>
-            </div>
-          ))}
-          {extras.map((e) => {
-            const m = materialById.get(e.material_id);
-            return (
-              <div
-                key={e.material_id}
-                className="flex items-center gap-3 p-3 bg-white rounded-lg border border-blue-200"
-              >
-                <span className="w-9 flex justify-center shrink-0">
-                  <BeadSwatch visual={m?.visual ?? null} size={28} seed={e.material_id} />
-                </span>
-                <span className="flex-1 text-sm text-gray-900 min-w-0">
-                  {m?.name ?? "(material no longer in inventory)"}
-                  <span className="ml-2 text-xs text-blue-600">extra</span>
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={e.quantity}
-                  onChange={(ev) =>
-                    setExtraQuantity(e.material_id, parseFloat(ev.target.value) || 0)
-                  }
-                  className="w-20 px-2 py-1 text-sm border border-gray-300 rounded text-right"
-                />
-                <span className="text-sm text-gray-600 w-24 text-right">
-                  ${(m?.unit_cost ?? 0).toFixed(3)}/ea
-                </span>
-                <span className="text-sm font-medium w-20 text-right">
-                  ${((m?.unit_cost ?? 0) * e.quantity).toFixed(2)}
-                </span>
-                <button
-                  onClick={() => removeExtra(e.material_id)}
-                  className="text-red-500 hover:text-red-700 p-1"
-                  title="Remove extra"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
+              <Pencil className="w-4 h-4 mr-1" />
+              Templates &amp; style
+            </button>
+            <button
+              onClick={generateListing}
+              disabled={
+                generating ||
+                !design ||
+                (design.beads?.length ?? 0) + extras.length === 0
+              }
+              className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed flex items-center text-sm"
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              {generating
+                ? "Generating…"
+                : listing
+                  ? "Regenerate"
+                  : "Generate Listing"}
+            </button>
+          </div>
 
-        {/* Add clasps, wire, and other off-board materials */}
-        <div className="mt-3">
-          {showExtraSearch ? (
-            <div className="p-4 bg-white border border-blue-200 rounded-lg">
-              <div className="flex justify-between items-center mb-3">
-                <h4 className="font-medium text-gray-900 text-sm">
-                  Add material from inventory
-                </h4>
-                <button
-                  onClick={() => setShowExtraSearch(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  ✕
-                </button>
+          {showTemplates && (
+            <div className="mb-4 p-4 bg-white border border-gray-200 rounded-lg space-y-4">
+              {!settingsLoaded ? (
+                <p className="text-sm text-gray-500">Loading settings…</p>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Title Template (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={settings.title_template}
+                      onChange={(e) =>
+                        updateSettings({ title_template: e.target.value })
+                      }
+                      placeholder='e.g., [Primary stone] [type of piece] - [length] - [color]'
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 font-mono text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Bracketed placeholders are filled in from the design; the
+                      rest is kept verbatim, so every listing title has the same
+                      shape.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Description Template (Optional)
+                    </label>
+                    <textarea
+                      value={settings.description_template}
+                      onChange={(e) =>
+                        updateSettings({ description_template: e.target.value })
+                      }
+                      rows={4}
+                      placeholder={
+                        "Outline every description follows, e.g.:\n[One-sentence hook]\n\nMaterials: [stones and metals]\nLength: [length]\n\n[Care instructions]"
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 font-mono text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Style Guidelines (Optional)
+                    </label>
+                    <textarea
+                      value={settings.style_guidelines}
+                      onChange={(e) =>
+                        updateSettings({ style_guidelines: e.target.value })
+                      }
+                      rows={3}
+                      placeholder="e.g., Use elegant, luxury language. Focus on healing properties. Mention handcrafted quality and uniqueness."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Applied to every listing in the store and saved to your
+                    account.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
+          {listing ? (
+            <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Title (140 characters max)
+                </label>
+                <textarea
+                  value={listing.title}
+                  onChange={(e) => updateListing({ title: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
+                />
+                <div className="text-xs text-gray-500 mt-1">
+                  {listing.title.length}/140 characters
+                </div>
               </div>
-              <div className="relative mb-3">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="text"
-                  placeholder="Search by name or category…"
-                  value={extraSearch}
-                  onChange={(e) => setExtraSearch(e.target.value)}
-                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm"
-                  autoFocus
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Description
+                </label>
+                <textarea
+                  value={listing.description}
+                  onChange={(e) => updateListing({ description: e.target.value })}
+                  rows={12}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
                 />
               </div>
-              <div className="max-h-64 overflow-y-auto space-y-1">
-                {extraCandidates.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => addExtra(m)}
-                    className="w-full flex justify-between items-center p-2 border border-gray-200 rounded hover:bg-blue-50 text-left"
-                  >
-                    <span className="text-sm text-gray-900">
-                      {m.name}
-                      <span className="ml-2 text-xs text-gray-500">
-                        {m.category} · ${m.unit_cost.toFixed(3)}/ea
-                      </span>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tags
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {listing.tags.map((tag, index) => (
+                    <span
+                      key={index}
+                      className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm"
+                    >
+                      {tag}
                     </span>
-                    <span className="text-xs text-gray-500">
-                      {m.quantity} in stock
-                    </span>
-                  </button>
-                ))}
-                {extraCandidates.length === 0 && (
-                  <p className="text-center py-3 text-sm text-gray-500">
-                    No materials match your search
+                  ))}
+                </div>
+              </div>
+              <div className="bg-purple-50 p-4 rounded-lg">
+                <h4 className="font-medium mb-2">Listing Price</h4>
+                <div className="text-2xl font-bold text-purple-700">
+                  ${listing.price.toFixed(2)}
+                </div>
+                {Math.abs(listing.price - costs.sellingPrice) > 0.005 && (
+                  <p className="text-sm mt-2 px-3 py-2 bg-amber-100 border border-amber-300 text-amber-800 rounded">
+                    Out of date — the calculator now suggests $
+                    {costs.sellingPrice.toFixed(2)}. Regenerate or{" "}
+                    <button
+                      className="underline font-medium"
+                      onClick={() => updateListing({ price: costs.sellingPrice })}
+                    >
+                      update the price
+                    </button>
+                    .
                   </p>
                 )}
               </div>
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => navigator.clipboard.writeText(listingText)}
+                  className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+                >
+                  <Copy className="w-4 h-4 mr-2" />
+                  Copy Listing
+                </button>
+                <button
+                  onClick={downloadListing}
+                  className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download
+                </button>
+              </div>
             </div>
           ) : (
-            <button
-              onClick={() => setShowExtraSearch(true)}
-              className="flex items-center px-3 py-2 bg-white border border-gray-300 rounded-md hover:bg-gray-100 text-sm"
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Add clasp, wire, or other material
-            </button>
+            <p className="text-sm text-gray-500 py-8 text-center">
+              No listing yet — Generate drafts one from the design&apos;s actual
+              materials and the calculated price.
+            </p>
           )}
         </div>
-      </div>
 
-      {/* Labor & overhead + cost breakdown */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-gray-50 p-6 rounded-lg">
-          <h3 className="text-lg font-semibold mb-4">Labor &amp; Overhead</h3>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Labor Time (hours)
-              </label>
+        {/* Sidebar: price + materials */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-lg border border-purple-200">
+            <div className="flex items-center mb-4">
+              <h3 className="text-lg font-semibold flex items-center flex-1">
+                <DollarSign className="w-5 h-5 mr-2 text-purple-600" />
+                Price
+              </h3>
+              <button
+                onClick={() => setShowRates((s) => !s)}
+                className={`flex items-center px-2 py-1 border rounded-md text-xs ${
+                  showRates
+                    ? "bg-purple-100 border-purple-300 text-purple-800"
+                    : "bg-white border-purple-200 text-gray-700 hover:bg-purple-50"
+                }`}
+              >
+                <Pencil className="w-3 h-3 mr-1" />
+                Rates
+              </button>
+            </div>
+
+            {showRates && (
+              <div className="mb-4 p-3 bg-white border border-purple-200 rounded-lg space-y-3">
+                {!settingsLoaded ? (
+                  <p className="text-sm text-gray-500">Loading settings…</p>
+                ) : (
+                  <>
+                    {(
+                      [
+                        ["Hourly Rate ($)", "hourly_rate"],
+                        ["Overhead Rate (%)", "overhead_pct"],
+                        ["Markup (%)", "markup_pct"],
+                      ] as const
+                    ).map(([label, field]) => (
+                      <div key={field} className="flex items-center justify-between gap-3">
+                        <label className="text-sm text-gray-700">{label}</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={settings[field]}
+                          onChange={(e) => updateSettings({ [field]: e.target.value })}
+                          className="w-24 px-2 py-1 border border-gray-300 rounded-md text-sm text-right"
+                        />
+                      </div>
+                    ))}
+                    <p className="text-xs text-gray-500">
+                      Business-wide rates, saved to your account.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between mb-3 pb-3 border-b border-purple-200">
+              <label className="text-sm text-gray-700">Labor Time (hours)</label>
               <input
                 type="number"
                 step="0.25"
@@ -608,233 +754,191 @@ export default function PricingStudio({ materials }: Props) {
                   setLaborHours(e.target.value);
                   setDirty(true);
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className="w-24 px-2 py-1 border border-gray-300 rounded-md text-sm text-right bg-white"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Hourly Rate ($)
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={settings.hourly_rate}
-                onChange={(e) => updateSettings({ hourly_rate: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Overhead Rate (%)
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={settings.overhead_pct}
-                onChange={(e) => updateSettings({ overhead_pct: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Markup (%)
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={settings.markup_pct}
-                onChange={(e) => updateSettings({ markup_pct: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              />
-            </div>
-          </div>
-        </div>
 
-        <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-lg border border-purple-200">
-          <h3 className="text-lg font-semibold mb-4 flex items-center">
-            <DollarSign className="w-5 h-5 mr-2 text-purple-600" />
-            Cost Breakdown
-          </h3>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Materials:</span>
-              <span className="font-medium">${costs.materialsCost.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Labor:</span>
-              <span className="font-medium">${costs.laborCost.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Overhead:</span>
-              <span className="font-medium">${costs.overhead.toFixed(2)}</span>
-            </div>
-            <div className="border-t pt-3 flex justify-between">
-              <span className="font-semibold">Total Cost:</span>
-              <span className="font-semibold">${costs.totalCost.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-lg">
-              <span className="font-bold text-purple-700">Selling Price:</span>
-              <span className="font-bold text-purple-700">
-                ${costs.sellingPrice.toFixed(2)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-green-600">Profit:</span>
-              <span className="text-green-600 font-medium">
-                ${costs.profit.toFixed(2)}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Listing generator */}
-      <div className="bg-gray-50 p-6 rounded-lg">
-        <h2 className="text-xl font-semibold mb-4">Etsy Listing</h2>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Title Template (Optional)
-            </label>
-            <input
-              type="text"
-              value={settings.title_template}
-              onChange={(e) => updateSettings({ title_template: e.target.value })}
-              placeholder='e.g., [Primary stone] [type of piece] - [length] - [color]'
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 font-mono text-sm"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Bracketed placeholders are filled in from the design; the rest is
-              kept verbatim, so every listing title has the same shape.
-            </p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Description Template (Optional)
-            </label>
-            <textarea
-              value={settings.description_template}
-              onChange={(e) =>
-                updateSettings({ description_template: e.target.value })
-              }
-              rows={4}
-              placeholder={
-                "Outline every description follows, e.g.:\n[One-sentence hook]\n\nMaterials: [stones and metals]\nLength: [length]\n\n[Care instructions]"
-              }
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 font-mono text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Style Guidelines (Optional)
-            </label>
-            <textarea
-              value={settings.style_guidelines}
-              onChange={(e) => updateSettings({ style_guidelines: e.target.value })}
-              rows={3}
-              placeholder="e.g., Use elegant, luxury language. Focus on healing properties. Mention handcrafted quality and uniqueness."
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
-            />
-          </div>
-          <div className="flex justify-center">
-            <button
-              onClick={generateListing}
-              disabled={generating || !design || (design.beads?.length ?? 0) + extras.length === 0}
-              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed flex items-center"
-            >
-              <Sparkles className="w-5 h-5 mr-2" />
-              {generating
-                ? "Generating…"
-                : listing
-                  ? "Regenerate Listing"
-                  : "Generate Listing"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {listing && (
-        <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold mb-4">Generated Listing</h3>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Title (140 characters max)
-              </label>
-              <textarea
-                value={listing.title}
-                onChange={(e) => updateListing({ title: e.target.value })}
-                rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
-              />
-              <div className="text-xs text-gray-500 mt-1">
-                {listing.title.length}/140 characters
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Materials:</span>
+                <span className="font-medium">${costs.materialsCost.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Labor:</span>
+                <span className="font-medium">${costs.laborCost.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Overhead:</span>
+                <span className="font-medium">${costs.overhead.toFixed(2)}</span>
+              </div>
+              <div className="border-t pt-3 flex justify-between">
+                <span className="font-semibold">Total Cost:</span>
+                <span className="font-semibold">${costs.totalCost.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-lg">
+                <span className="font-bold text-purple-700">Selling Price:</span>
+                <span className="font-bold text-purple-700">
+                  ${costs.sellingPrice.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-green-600">Profit:</span>
+                <span className="text-green-600 font-medium">
+                  ${costs.profit.toFixed(2)}
+                </span>
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Description
-              </label>
-              <textarea
-                value={listing.description}
-                onChange={(e) => updateListing({ description: e.target.value })}
-                rows={12}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tags
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {listing.tags.map((tag, index) => (
-                  <span
-                    key={index}
-                    className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm"
-                  >
-                    {tag}
+          </div>
+
+          {/* Materials from the design */}
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <h3 className="text-lg font-semibold mb-3">Materials Used</h3>
+            {missingCount > 0 && (
+              <div className="mb-3 px-3 py-2 bg-amber-100 border border-amber-300 text-amber-800 rounded text-sm">
+                {missingCount} material{missingCount > 1 ? "s" : ""} in this design{" "}
+                {missingCount > 1 ? "are" : "is"} no longer in inventory and priced
+                as $0 — totals understate the real cost.
+              </div>
+            )}
+            {beadUsage.length === 0 && extras.length === 0 && (
+              <p className="text-sm text-gray-500 mb-3">
+                This design has no beads yet — add some on the Design Board.
+              </p>
+            )}
+            <div className="space-y-2">
+              {beadUsage.map((u) => (
+                <div
+                  key={u.materialId}
+                  className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-200"
+                >
+                  <span className="w-8 flex justify-center shrink-0">
+                    <BeadSwatch
+                      visual={u.material?.visual ?? null}
+                      size={24}
+                      seed={u.materialId}
+                    />
                   </span>
-                ))}
-              </div>
-            </div>
-            <div className="bg-purple-50 p-4 rounded-lg">
-              <h4 className="font-medium mb-2">Listing Price</h4>
-              <div className="text-2xl font-bold text-purple-700">
-                ${listing.price.toFixed(2)}
-              </div>
-              {Math.abs(listing.price - costs.sellingPrice) > 0.005 && (
-                <p className="text-sm mt-2 px-3 py-2 bg-amber-100 border border-amber-300 text-amber-800 rounded">
-                  Out of date — the calculator now suggests $
-                  {costs.sellingPrice.toFixed(2)}. Regenerate or{" "}
-                  <button
-                    className="underline font-medium"
-                    onClick={() => updateListing({ price: costs.sellingPrice })}
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm text-gray-900">
+                      {u.material?.name ?? "(material no longer in inventory)"}
+                    </span>
+                    <span className="block text-xs text-gray-500">
+                      × {u.count} · ${(u.material?.unit_cost ?? 0).toFixed(3)}/ea
+                    </span>
+                  </span>
+                  <span className="text-sm font-medium shrink-0">
+                    ${u.cost.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+              {extras.map((e) => {
+                const m = materialById.get(e.material_id);
+                return (
+                  <div
+                    key={e.material_id}
+                    className="flex items-center gap-2 p-2 bg-white rounded-lg border border-blue-200"
                   >
-                    update the price
-                  </button>
-                  .
-                </p>
+                    <span className="w-8 flex justify-center shrink-0">
+                      <BeadSwatch visual={m?.visual ?? null} size={24} seed={e.material_id} />
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm text-gray-900">
+                        {m?.name ?? "(material no longer in inventory)"}
+                        <span className="ml-2 text-xs text-blue-600">extra</span>
+                      </span>
+                      <span className="block text-xs text-gray-500">
+                        ${(m?.unit_cost ?? 0).toFixed(3)}/ea
+                      </span>
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={e.quantity}
+                      onChange={(ev) =>
+                        setExtraQuantity(e.material_id, parseFloat(ev.target.value) || 0)
+                      }
+                      className="w-16 px-2 py-1 text-sm border border-gray-300 rounded text-right"
+                    />
+                    <span className="text-sm font-medium w-14 text-right shrink-0">
+                      ${((m?.unit_cost ?? 0) * e.quantity).toFixed(2)}
+                    </span>
+                    <button
+                      onClick={() => removeExtra(e.material_id)}
+                      className="text-red-500 hover:text-red-700 p-1"
+                      title="Remove extra"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Add clasps, wire, and other off-board materials */}
+            <div className="mt-3">
+              {showExtraSearch ? (
+                <div className="p-3 bg-white border border-blue-200 rounded-lg">
+                  <div className="flex justify-between items-center mb-3">
+                    <h4 className="font-medium text-gray-900 text-sm">
+                      Add material from inventory
+                    </h4>
+                    <button
+                      onClick={() => setShowExtraSearch(false)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="relative mb-3">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input
+                      type="text"
+                      placeholder="Search by name or category…"
+                      value={extraSearch}
+                      onChange={(e) => setExtraSearch(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="max-h-64 overflow-y-auto space-y-1">
+                    {extraCandidates.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => addExtra(m)}
+                        className="w-full flex justify-between items-center gap-2 p-2 border border-gray-200 rounded hover:bg-blue-50 text-left"
+                      >
+                        <span className="text-sm text-gray-900 min-w-0">
+                          {m.name}
+                          <span className="ml-2 text-xs text-gray-500">
+                            {m.category} · ${m.unit_cost.toFixed(3)}/ea
+                          </span>
+                        </span>
+                        <span className="text-xs text-gray-500 shrink-0">
+                          {m.quantity} in stock
+                        </span>
+                      </button>
+                    ))}
+                    {extraCandidates.length === 0 && (
+                      <p className="text-center py-3 text-sm text-gray-500">
+                        No materials match your search
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowExtraSearch(true)}
+                  className="flex items-center px-3 py-2 bg-white border border-gray-300 rounded-md hover:bg-gray-100 text-sm"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add clasp, wire, or other material
+                </button>
               )}
             </div>
-            <div className="flex space-x-3">
-              <button
-                onClick={() => navigator.clipboard.writeText(listingText)}
-                className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
-              >
-                <Copy className="w-4 h-4 mr-2" />
-                Copy Listing
-              </button>
-              <button
-                onClick={downloadListing}
-                className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Download
-              </button>
-            </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
