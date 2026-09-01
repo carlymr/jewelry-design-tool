@@ -70,9 +70,22 @@ const PLACEABLE_CATEGORIES = new Set(["Beads", "Cabochons", "Findings"]);
 // Working-copy draft persisted to localStorage so navigation, reloads, and
 // tab closes can't lose unsaved strand work.
 const DRAFT_KEY = "design-board-draft";
-// Materials the user has pinned to the palette's working set. Persisted
-// separately from the draft: pins outlive the design you were working on.
+// Materials the user has pinned to the palette's working set (GRA-39).
+// Persisted separately from the draft and scoped per design, so each piece
+// keeps its own working set: a saved design's pins live under
+// `{PINS_KEY}:{user}:{design id}`; the not-yet-saved design's under the bare
+// `{PINS_KEY}:{user}` slot, and they move to the design's slot on first save.
 const PINS_KEY = "design-board-pins";
+
+/** Pinned ids stored under one slot; a missing or corrupt entry reads as none. */
+function readPins(key: string): string[] {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
+    return Array.isArray(saved) ? saved.filter((id) => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 interface Props {
   materials: Material[];
@@ -108,11 +121,14 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // a shared browser.
   const session = useSession();
   const draftKey = `${DRAFT_KEY}:${session?.user.id ?? "local"}`;
-  const pinsKey = `${PINS_KEY}:${session?.user.id ?? "local"}`;
 
   // --- design state (working copy) ---
   const [designs, setDesigns] = useState<Design[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
+  // Pins are scoped per design on top of that (see PINS_KEY).
+  const pinsKeyFor = (designId: string | null) =>
+    `${PINS_KEY}:${session?.user.id ?? "local"}${designId ? `:${designId}` : ""}`;
+  const pinsKey = pinsKeyFor(currentId);
   const [name, setName] = useState("Untitled design");
   const [targetMm, setTargetMm] = useState(7 * MM_PER_INCH);
   const [beads, setBeads] = useState<DesignBead[]>([]);
@@ -150,8 +166,15 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [familyFilter, setFamilyFilter] = useState("");
   const [sizeFilter, setSizeFilter] = useState("");
-  // Manually pinned material ids, in the order they were pinned.
-  const [pinned, setPinned] = useState<string[]>([]);
+  // Manually pinned material ids, in the order they were pinned, tagged with
+  // the slot they were read from so the persist effect below can never write
+  // one design's (or account's) pins into another's slot — the key changes
+  // whenever the design does, including during the draft restore on mount.
+  const [pins, setPins] = useState<{ key: string | null; ids: string[] }>({
+    key: null,
+    ids: [],
+  });
+  const pinned = pins.ids;
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -227,33 +250,25 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     }
   }, [dirty, currentId, name, targetMm, beads, draftKey]);
 
-  // --- pinned materials: restore per account, then persist every change ---
-  // The ref holds the key the current `pinned` came from, so the persist
-  // effect can't write one account's pins into another's slot.
-  const pinsRestoredFor = useRef<string | null>(null);
+  // --- pinned materials: restore per account + design, then persist every
+  // change back to the slot they came from ---
   useEffect(() => {
-    let saved: unknown = null;
-    try {
-      const raw = localStorage.getItem(pinsKey);
-      saved = raw ? JSON.parse(raw) : null;
-    } catch {
-      // A corrupt pin list shouldn't break the board.
-    }
-    setPinned(Array.isArray(saved) ? saved.filter((id) => typeof id === "string") : []);
-    pinsRestoredFor.current = pinsKey;
+    setPins({ key: pinsKey, ids: readPins(pinsKey) });
   }, [pinsKey]);
 
   useEffect(() => {
-    if (pinsRestoredFor.current !== pinsKey) return;
+    if (pins.key !== pinsKey) return;
     try {
-      localStorage.setItem(pinsKey, JSON.stringify(pinned));
+      localStorage.setItem(pinsKey, JSON.stringify(pins.ids));
     } catch {
       // Quota/private-mode failures just lose the pins, nothing else.
     }
-  }, [pinned, pinsKey]);
+  }, [pins, pinsKey]);
 
+  const updatePinned = (update: (prev: string[]) => string[]) =>
+    setPins((prev) => ({ ...prev, ids: update(prev.ids) }));
   const togglePin = (id: string) =>
-    setPinned((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    updatePinned((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   // --- load designs ---
   useEffect(() => {
@@ -631,6 +646,14 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         setDesigns(designs.map((d) => (d.id === saved.id ? saved : d)));
       } else {
         const saved = await createDesign(fields);
+        // The working set built while unsaved belongs to this design now:
+        // move it to the design's slot before the key switch restores from it.
+        try {
+          localStorage.setItem(pinsKeyFor(saved.id), JSON.stringify(pinned));
+          localStorage.removeItem(pinsKey);
+        } catch {
+          // Losing the pins here is no worse than losing them anywhere else.
+        }
         setDesigns([saved, ...designs]);
         setCurrentId(saved.id);
       }
@@ -649,6 +672,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     try {
       await deleteDesign(currentId);
       setDesigns(designs.filter((d) => d.id !== currentId));
+      try {
+        localStorage.removeItem(pinsKey);
+      } catch {
+        // A stale pin slot is harmless.
+      }
       newDesign(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to delete design");
@@ -831,27 +859,27 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           </span>
           <Plus className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
         </button>
-        {onStrand ? (
-          // Already held by the design: pinning it would change nothing you
-          // could see, so this reads as status, not a control.
+        {onStrand && (
+          // Status, not a control: the design holds it for now. Pinning is
+          // independent, so a pinned material stays in reach after it's
+          // taken off the strand again.
           <span
             className="p-1 shrink-0 text-purple-400"
-            title="In the design — stays here while it's on the strand"
+            title="On the strand — pin it to keep it here if you take it off"
           >
             <Lock className="w-3.5 h-3.5" />
           </span>
-        ) : (
-          <button
-            onClick={() => togglePin(m.id)}
-            className={`p-1 shrink-0 ${
-              isPinned ? "text-purple-600" : "text-gray-300 hover:text-purple-600"
-            }`}
-            aria-pressed={isPinned}
-            title={isPinned ? "Unpin from working set" : "Pin to working set"}
-          >
-            <Pin className={`w-3.5 h-3.5 ${isPinned ? "fill-current" : ""}`} />
-          </button>
         )}
+        <button
+          onClick={() => togglePin(m.id)}
+          className={`p-1 shrink-0 ${
+            isPinned ? "text-purple-600" : "text-gray-300 hover:text-purple-600"
+          }`}
+          aria-pressed={isPinned}
+          title={isPinned ? "Unpin from working set" : "Pin to working set"}
+        >
+          <Pin className={`w-3.5 h-3.5 ${isPinned ? "fill-current" : ""}`} />
+        </button>
         <button
           onClick={() => setDetailId(m.id)}
           className="p-1 text-gray-300 hover:text-purple-600 shrink-0"
@@ -1418,7 +1446,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             {pinned.length > 0 && (
               <div className="flex justify-end mb-2">
                 <button
-                  onClick={() => setPinned([])}
+                  onClick={() => updatePinned(() => [])}
                   className="text-xs text-purple-700/70 hover:text-purple-900"
                 >
                   Unpin all
