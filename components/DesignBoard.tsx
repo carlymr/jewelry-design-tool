@@ -15,6 +15,8 @@ import {
   Lock,
   Info,
   Replace,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import BeadSwatch, { Bead } from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
@@ -37,6 +39,7 @@ import {
   type BeadVisual,
 } from "@/lib/bead-visual";
 import { curveGeometry, curvePath } from "@/lib/strand-layout";
+import { useHistory } from "@/lib/useHistory";
 import { presentCategories, type Design, type DesignBead, type Material } from "@/lib/types";
 
 const MM_PER_INCH = 25.4;
@@ -77,6 +80,15 @@ const DRAFT_KEY = "design-board-draft";
 // `{PINS_KEY}:{user}:{design id}`; the not-yet-saved design's under the bare
 // `{PINS_KEY}:{user}` slot, and they move to the design's slot on first save.
 const PINS_KEY = "design-board-pins";
+// How many strand edits undo can walk back.
+const HISTORY_LIMIT = 50;
+// One undo step: the strand plus the cursor, captured together so the
+// selection always matches the beads it points at.
+type StrandSnapshot = {
+  beads: DesignBead[];
+  selection: { anchor: number; focus: number } | null;
+  insertion: number;
+};
 
 /** Pinned ids stored under one slot; a missing or corrupt entry reads as none. */
 function readPins(key: string): string[] {
@@ -140,6 +152,10 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     null
   );
   const [insertion, setInsertion] = useState(0);
+  // Undo/redo snapshots carry the cursor along with the strand, so undoing
+  // puts the selection back where it was. Only user edits (`mutateBeads`)
+  // record; loading or starting a design resets the stacks instead.
+  const history = useHistory<StrandSnapshot>(HISTORY_LIMIT);
   const [repeatCount, setRepeatCount] = useState(3);
   const [zoomMode, setZoomMode] = useState<"fit" | "custom">("fit");
   // "line" is the straight editing strand; "curve" shows the piece as worn
@@ -419,9 +435,22 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
 
   // --- editing actions ---
   const mutateBeads = (next: DesignBead[]) => {
+    history.record({ beads, selection, insertion });
     setBeads(next.slice(0, MAX_BEADS));
     setDirty(true);
   };
+
+  // Stepping through history is an edit like any other: it dirties the
+  // design and flows into the draft.
+  const restoreSnapshot = (snap: StrandSnapshot | null) => {
+    if (!snap) return;
+    setBeads(snap.beads);
+    setSelection(snap.selection);
+    setInsertion(snap.insertion);
+    setDirty(true);
+  };
+  const undo = () => restoreSnapshot(history.undo({ beads, selection, insertion }));
+  const redo = () => restoreSnapshot(history.redo({ beads, selection, insertion }));
 
   const addBead = (materialId: string) => {
     if (beads.length >= MAX_BEADS) return;
@@ -594,6 +623,16 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    // Ctrl/Cmd+Z undoes; Shift with it, or Ctrl/Cmd+Y, redoes.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+      const key = e.key.toLowerCase();
+      if (key === "z" || key === "y") {
+        e.preventDefault();
+        if (key === "y" || e.shiftKey) redo();
+        else undo();
+        return;
+      }
+    }
     if (e.key === "Escape") {
       if (replacing) setReplacingId(null);
       else setSelection(null);
@@ -649,6 +688,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     setDirty(false);
     setSelection(null);
     setInsertion((design.beads ?? []).length);
+    // Undo never crosses designs, and the load itself isn't a step.
+    history.reset();
   };
 
   const switchDesign = (id: string) => {
@@ -671,6 +712,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     setDirty(false);
     setSelection(null);
     setInsertion(0);
+    history.reset();
   };
 
   const saveDesign = async () => {
@@ -1400,6 +1442,26 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
           <div className="flex items-center gap-1">
             <button
+              onClick={undo}
+              disabled={!history.canUndo}
+              className="flex items-center px-2 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Undo (Ctrl+Z / ⌘Z)"
+              aria-label="Undo"
+            >
+              <Undo2 className="w-5 h-5" />
+            </button>
+            <button
+              onClick={redo}
+              disabled={!history.canRedo}
+              className="flex items-center px-2 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Redo (Ctrl+Shift+Z / ⌘⇧Z / Ctrl+Y)"
+              aria-label="Redo"
+            >
+              <Redo2 className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
               onClick={() => repeatSelection(repeatCount)}
               disabled={!range}
               className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1500,7 +1562,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             <>
               Drag beads to rearrange · click between beads or use arrow keys to
               move the insertion point (Shift+arrows select, Esc clears) ·
-              Backspace removes the last-placed bead.
+              Backspace removes the last-placed bead · Ctrl+Z / ⌘Z undoes.
             </>
           )}
         </p>
