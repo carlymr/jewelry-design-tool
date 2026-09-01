@@ -14,6 +14,7 @@ import {
   Pin,
   Lock,
   Info,
+  Replace,
 } from "lucide-react";
 import BeadSwatch, { Bead } from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
@@ -158,6 +159,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // Which material's detail modal is open (id, so a post-save refresh flows
   // straight into the open modal instead of leaving it on a stale object).
   const [detailId, setDetailId] = useState<string | null>(null);
+  // Replace mode (GRA-41): the material whose every placement is about to be
+  // swapped for whatever palette card gets clicked next.
+  const [replacingId, setReplacingId] = useState<string | null>(null);
   // Ids we've already requested a visual for, so partial API results don't
   // retry forever and later-added materials still get picked up.
   const attemptedVisuals = useRef(new Set<string>());
@@ -317,6 +321,22 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     return ids;
   }, [beads]);
 
+  // How many of each material the strand holds.
+  const strandCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const b of beads) counts.set(b.material_id, (counts.get(b.material_id) ?? 0) + 1);
+    return counts;
+  }, [beads]);
+
+  // Replace mode only means something while its material is still on the
+  // strand; once the last one is removed (or another design loads) the mode
+  // dissolves on its own rather than lingering on a stale id.
+  const replacing =
+    replacingId && strandCounts.has(replacingId)
+      ? materialById.get(replacingId) ?? null
+      : null;
+  const replacingCount = replacing ? strandCounts.get(replacing.id) ?? 0 : 0;
+
   // The working set: what you're building with right now. Materials already on
   // the strand stay reachable automatically, and pinning keeps one around after
   // it leaves the strand. Both ignore the search and filters, so switching
@@ -365,17 +385,15 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   );
 
   const stockIssues = useMemo(() => {
-    const used = new Map<string, number>();
-    for (const b of beads) used.set(b.material_id, (used.get(b.material_id) ?? 0) + 1);
     const issues: { name: string; need: number; have: number }[] = [];
-    for (const [id, need] of used) {
+    for (const [id, need] of strandCounts) {
       const m = materialById.get(id);
       if (m && need > m.quantity) {
         issues.push({ name: m.name, need, have: m.quantity });
       }
     }
     return issues;
-  }, [beads, materialById]);
+  }, [strandCounts, materialById]);
 
   const range = selection
     ? {
@@ -404,6 +422,24 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     // the palette from jumping out from under the pointer.
     boardRef.current?.focus({ preventScroll: true });
   };
+
+  // Swap every placement of one material for another, in place: order,
+  // count and the selection (which is by index) all stay put. Picking the
+  // material already being replaced is a no-op that just leaves the mode.
+  const replaceMaterial = (fromId: string, toId: string) => {
+    setReplacingId(null);
+    if (fromId === toId) return;
+    mutateBeads(beads.map((b) => (b.material_id === fromId ? { material_id: toId } : b)));
+    boardRef.current?.focus({ preventScroll: true });
+  };
+
+  // The selection toolbar can offer Replace only when the selected run is one
+  // material — otherwise there's nothing unambiguous to swap out.
+  const selectionMaterialIds = range
+    ? new Set(beads.slice(range.start, range.end + 1).map((b) => b.material_id))
+    : null;
+  const selectionMaterialId =
+    selectionMaterialIds?.size === 1 ? [...selectionMaterialIds][0] : null;
 
   const deleteSelection = useCallback(() => {
     if (!range) return;
@@ -544,7 +580,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
     if (e.key === "Escape") {
-      setSelection(null);
+      if (replacing) setReplacingId(null);
+      else setSelection(null);
       return;
     }
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
@@ -804,15 +841,27 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const paletteCard = (m: Material) => {
     const isPinned = pinned.includes(m.id);
     const onStrand = strandMaterialIds.has(m.id);
+    const onStrandCount = strandCounts.get(m.id) ?? 0;
+    // In replace mode every card becomes a candidate replacement; the one
+    // being replaced is flagged so a stray click on it reads as "never mind".
+    const isSource = replacing?.id === m.id;
     return (
       <div
         key={m.id}
-        className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-purple-400 group"
+        className={`flex items-center gap-3 bg-white border rounded-lg px-3 py-2 hover:border-purple-400 group ${
+          isSource ? "border-purple-500 ring-2 ring-purple-200" : "border-gray-200"
+        }`}
       >
         <button
-          onClick={() => addBead(m.id)}
+          onClick={() => (replacing ? replaceMaterial(replacing.id, m.id) : addBead(m.id))}
           className="flex items-center gap-3 flex-1 text-left min-w-0"
-          title="Add to strand"
+          title={
+            !replacing
+              ? "Add to strand"
+              : isSource
+                ? "This is the one being replaced — click to cancel"
+                : `Replace all ${replacingCount} ${replacing.name} with this`
+          }
         >
           <span className="w-9 flex justify-center shrink-0">
             <BeadSwatch visual={m.visual} size={32} seed={m.id} />
@@ -829,8 +878,22 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               )}
             </span>
           </span>
-          <Plus className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
+          {replacing && !isSource ? (
+            <Replace className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
+          ) : (
+            <Plus className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
+          )}
         </button>
+        {onStrand && !replacing && (
+          <button
+            onClick={() => setReplacingId(m.id)}
+            className="p-1 text-gray-300 hover:text-purple-600 shrink-0"
+            title={`Replace all ${onStrandCount} on the strand with…`}
+            aria-label={`Replace all ${onStrandCount} ${m.name} on the strand`}
+          >
+            <Replace className="w-3.5 h-3.5" />
+          </button>
+        )}
         {onStrand ? (
           // Already held by the design: pinning it would change nothing you
           // could see, so this reads as status, not a control.
@@ -1346,6 +1409,19 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             Remove
           </button>
           <button
+            onClick={() => selectionMaterialId && setReplacingId(selectionMaterialId)}
+            disabled={!selectionMaterialId}
+            className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            title={
+              selectionMaterialId
+                ? "Swap every bead of the selected material for one you pick from the palette"
+                : "Select beads of a single material to replace all of them"
+            }
+          >
+            <Replace className="w-4 h-4 mr-1" />
+            Replace…
+          </button>
+          <button
             onClick={clearAll}
             disabled={beads.length === 0}
             className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1413,6 +1489,21 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             </span>
           )}
         </div>
+        {replacing && (
+          <div className="mb-3 flex flex-wrap items-center gap-3 bg-purple-100 border border-purple-300 text-purple-900 rounded-lg px-3 py-2 text-sm">
+            <Replace className="w-4 h-4 shrink-0" />
+            <span className="flex-1 min-w-0">
+              Replacing <strong>{replacing.name}</strong> ({replacingCount} on strand) —
+              pick a replacement from the palette below, or Cancel.
+            </span>
+            <button
+              onClick={() => setReplacingId(null)}
+              className="px-2 py-1 bg-white border border-purple-300 rounded-md hover:bg-purple-50"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
         {workingSet.length > 0 && (
           <div className="mb-4 bg-purple-50/70 border border-purple-200 rounded-lg p-3">
             {pinned.length > 0 && (
