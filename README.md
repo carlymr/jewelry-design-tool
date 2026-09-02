@@ -13,6 +13,7 @@ Built with Next.js, Supabase, and the Anthropic API; deploys to Vercel.
 - **As-worn view**: toggle between the straight editing strand and how the piece actually lies — a closed circle for bracelet lengths, a hanging drape for necklaces — with pendants hanging true and selection/drag still live
 - **Pattern building**: click materials from the palette to place them, select a run (click / shift-click), then *Repeat ×N* or *Fill to target* to complete the strand; Backspace removes the last-placed element
 - **Direct manipulation**: drag an element (or a selected run) to rearrange the strand, click between elements to move the insertion point, and use arrow keys to move it precisely (Shift+arrows to select, Esc to clear)
+- **Undo/redo and replace**: Ctrl/⌘Z undoes any strand edit and Ctrl/⌘⇧Z (or Ctrl+Y) redoes it, up to 50 steps; *Replace all…* (on a working-set card, or from a single-material selection) swaps every placement of one material for another while keeping the layout
 - **Beyond beads**: chain (placed by the inch), lobster and toggle clasps, jump rings, connectors, bezel settings, pinch bails, and cabochons — each renders with its own treatment, and a cabochon's varies with how it's drilled (undrilled or unrecorded → placeholder bail flagged "needs setting", front-to-back → pinch bail, top-drilled → hangs from the wire, center-drilled → strung inline). Cabochons and bezel recesses draw to their face shape — oval, rectangle, triangle, pentagon, hexagon, teardrop, marquise, stalactite or trapiche slice, freeform — set from the receipt or the inventory edit row
 - **Live totals**: length vs. target, material cost, and "need X, have Y" warnings when a design overdraws inventory
 - **Saved designs** with name and target length, persisted to Supabase
@@ -111,6 +112,7 @@ lib/
   visuals.ts                   # shared name→visual API call (board + inventory)
   strand-layout.ts             # as-worn geometry (bracelet circle / necklace drape)
   photo-upload.ts              # shared downscale + transient-upload helpers
+  useHistory.ts                # bounded undo/redo snapshot stacks (design board)
   designs.ts / materials.ts    # Supabase CRUD (+ provenance-aware import matching)
   orders.ts                    # order upsert, receipt archive upload + signed URLs
   settings.ts                  # per-user pricing/listing settings (user_settings table)

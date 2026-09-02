@@ -12,8 +12,11 @@ import {
   ZoomIn,
   ZoomOut,
   Pin,
-  Lock,
   Info,
+  Replace,
+  X,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import BeadSwatch, { Bead } from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
@@ -36,6 +39,7 @@ import {
   type BeadVisual,
 } from "@/lib/bead-visual";
 import { curveGeometry, curvePath } from "@/lib/strand-layout";
+import { useHistory } from "@/lib/useHistory";
 import { presentCategories, type Design, type DesignBead, type Material } from "@/lib/types";
 
 const MM_PER_INCH = 25.4;
@@ -70,9 +74,31 @@ const PLACEABLE_CATEGORIES = new Set(["Beads", "Cabochons", "Findings"]);
 // Working-copy draft persisted to localStorage so navigation, reloads, and
 // tab closes can't lose unsaved strand work.
 const DRAFT_KEY = "design-board-draft";
-// Materials the user has pinned to the palette's working set. Persisted
-// separately from the draft: pins outlive the design you were working on.
+// Materials the user has pinned to the palette's working set (GRA-39).
+// Persisted separately from the draft and scoped per design, so each piece
+// keeps its own working set: a saved design's pins live under
+// `{PINS_KEY}:{user}:{design id}`; the not-yet-saved design's under the bare
+// `{PINS_KEY}:{user}` slot, and they move to the design's slot on first save.
 const PINS_KEY = "design-board-pins";
+// How many strand edits undo can walk back.
+const HISTORY_LIMIT = 50;
+// One undo step: the strand plus the cursor, captured together so the
+// selection always matches the beads it points at.
+type StrandSnapshot = {
+  beads: DesignBead[];
+  selection: { anchor: number; focus: number } | null;
+  insertion: number;
+};
+
+/** Pinned ids stored under one slot; a missing or corrupt entry reads as none. */
+function readPins(key: string): string[] {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
+    return Array.isArray(saved) ? saved.filter((id) => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 interface Props {
   materials: Material[];
@@ -108,11 +134,14 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // a shared browser.
   const session = useSession();
   const draftKey = `${DRAFT_KEY}:${session?.user.id ?? "local"}`;
-  const pinsKey = `${PINS_KEY}:${session?.user.id ?? "local"}`;
 
   // --- design state (working copy) ---
   const [designs, setDesigns] = useState<Design[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
+  // Pins are scoped per design on top of that (see PINS_KEY).
+  const pinsKeyFor = (designId: string | null) =>
+    `${PINS_KEY}:${session?.user.id ?? "local"}${designId ? `:${designId}` : ""}`;
+  const pinsKey = pinsKeyFor(currentId);
   const [name, setName] = useState("Untitled design");
   const [targetMm, setTargetMm] = useState(7 * MM_PER_INCH);
   const [beads, setBeads] = useState<DesignBead[]>([]);
@@ -123,6 +152,10 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     null
   );
   const [insertion, setInsertion] = useState(0);
+  // Undo/redo snapshots carry the cursor along with the strand, so undoing
+  // puts the selection back where it was. Only user edits (`mutateBeads`)
+  // record; loading or starting a design resets the stacks instead.
+  const history = useHistory<StrandSnapshot>(HISTORY_LIMIT);
   const [repeatCount, setRepeatCount] = useState(3);
   const [zoomMode, setZoomMode] = useState<"fit" | "custom">("fit");
   // "line" is the straight editing strand; "curve" shows the piece as worn
@@ -150,14 +183,24 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [familyFilter, setFamilyFilter] = useState("");
   const [sizeFilter, setSizeFilter] = useState("");
-  // Manually pinned material ids, in the order they were pinned.
-  const [pinned, setPinned] = useState<string[]>([]);
+  // Manually pinned material ids, in the order they were pinned, tagged with
+  // the slot they were read from so the persist effect below can never write
+  // one design's (or account's) pins into another's slot — the key changes
+  // whenever the design does, including during the draft restore on mount.
+  const [pins, setPins] = useState<{ key: string | null; ids: string[] }>({
+    key: null,
+    ids: [],
+  });
+  const pinned = pins.ids;
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   // Which material's detail modal is open (id, so a post-save refresh flows
   // straight into the open modal instead of leaving it on a stale object).
   const [detailId, setDetailId] = useState<string | null>(null);
+  // Replace mode (GRA-41): the material whose every placement is about to be
+  // swapped for whatever palette card gets clicked next.
+  const [replacingId, setReplacingId] = useState<string | null>(null);
   // Ids we've already requested a visual for, so partial API results don't
   // retry forever and later-added materials still get picked up.
   const attemptedVisuals = useRef(new Set<string>());
@@ -227,33 +270,25 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     }
   }, [dirty, currentId, name, targetMm, beads, draftKey]);
 
-  // --- pinned materials: restore per account, then persist every change ---
-  // The ref holds the key the current `pinned` came from, so the persist
-  // effect can't write one account's pins into another's slot.
-  const pinsRestoredFor = useRef<string | null>(null);
+  // --- pinned materials: restore per account + design, then persist every
+  // change back to the slot they came from ---
   useEffect(() => {
-    let saved: unknown = null;
-    try {
-      const raw = localStorage.getItem(pinsKey);
-      saved = raw ? JSON.parse(raw) : null;
-    } catch {
-      // A corrupt pin list shouldn't break the board.
-    }
-    setPinned(Array.isArray(saved) ? saved.filter((id) => typeof id === "string") : []);
-    pinsRestoredFor.current = pinsKey;
+    setPins({ key: pinsKey, ids: readPins(pinsKey) });
   }, [pinsKey]);
 
   useEffect(() => {
-    if (pinsRestoredFor.current !== pinsKey) return;
+    if (pins.key !== pinsKey) return;
     try {
-      localStorage.setItem(pinsKey, JSON.stringify(pinned));
+      localStorage.setItem(pinsKey, JSON.stringify(pins.ids));
     } catch {
       // Quota/private-mode failures just lose the pins, nothing else.
     }
-  }, [pinned, pinsKey]);
+  }, [pins, pinsKey]);
 
+  const updatePinned = (update: (prev: string[]) => string[]) =>
+    setPins((prev) => ({ ...prev, ids: update(prev.ids) }));
   const togglePin = (id: string) =>
-    setPinned((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    updatePinned((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   // --- load designs ---
   useEffect(() => {
@@ -310,23 +345,37 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // filed outside PLACEABLE_CATEGORIES that earned a visual anyway.
   const categoryOptions = useMemo(() => presentCategories(placeable), [placeable]);
 
-  // Distinct materials on the strand, in the order they first appear on it.
-  const strandMaterialIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const b of beads) ids.add(b.material_id);
-    return ids;
+  // How many of each material the strand holds, keyed in the order the
+  // materials first appear on it (so its keys double as the on-strand list).
+  const strandCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const b of beads) counts.set(b.material_id, (counts.get(b.material_id) ?? 0) + 1);
+    return counts;
   }, [beads]);
+
+  // Replace mode only means something while its material is still on the
+  // strand. Once the last one is removed the id is cleared outright, so the
+  // mode can't quietly come back when that material is re-added or undone
+  // onto the strand — only an explicit click re-enters it.
+  useEffect(() => {
+    if (replacingId && !strandCounts.has(replacingId)) setReplacingId(null);
+  }, [replacingId, strandCounts]);
+  const replacing =
+    replacingId && strandCounts.has(replacingId)
+      ? materialById.get(replacingId) ?? null
+      : null;
+  const replacingCount = replacing ? strandCounts.get(replacing.id) ?? 0 : 0;
 
   // The working set: what you're building with right now. Materials already on
   // the strand stay reachable automatically, and pinning keeps one around after
   // it leaves the strand. Both ignore the search and filters, so switching
   // between a few beads no longer means re-searching for each one.
   const workingSet = useMemo(() => {
-    const ids = [...strandMaterialIds, ...pinned.filter((id) => !strandMaterialIds.has(id))];
+    const ids = [...strandCounts.keys(), ...pinned.filter((id) => !strandCounts.has(id))];
     return ids
       .map((id) => materialById.get(id))
       .filter((m): m is Material => m !== undefined);
-  }, [strandMaterialIds, pinned, materialById]);
+  }, [strandCounts, pinned, materialById]);
 
   const workingSetIds = useMemo(
     () => new Set(workingSet.map((m) => m.id)),
@@ -365,17 +414,15 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   );
 
   const stockIssues = useMemo(() => {
-    const used = new Map<string, number>();
-    for (const b of beads) used.set(b.material_id, (used.get(b.material_id) ?? 0) + 1);
     const issues: { name: string; need: number; have: number }[] = [];
-    for (const [id, need] of used) {
+    for (const [id, need] of strandCounts) {
       const m = materialById.get(id);
       if (m && need > m.quantity) {
         issues.push({ name: m.name, need, have: m.quantity });
       }
     }
     return issues;
-  }, [beads, materialById]);
+  }, [strandCounts, materialById]);
 
   const range = selection
     ? {
@@ -386,9 +433,22 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
 
   // --- editing actions ---
   const mutateBeads = (next: DesignBead[]) => {
+    history.record({ beads, selection, insertion });
     setBeads(next.slice(0, MAX_BEADS));
     setDirty(true);
   };
+
+  // Stepping through history is an edit like any other: it dirties the
+  // design and flows into the draft.
+  const restoreSnapshot = (snap: StrandSnapshot | null) => {
+    if (!snap) return;
+    setBeads(snap.beads);
+    setSelection(snap.selection);
+    setInsertion(snap.insertion);
+    setDirty(true);
+  };
+  const undo = () => restoreSnapshot(history.undo({ beads, selection, insertion }));
+  const redo = () => restoreSnapshot(history.redo({ beads, selection, insertion }));
 
   const addBead = (materialId: string) => {
     if (beads.length >= MAX_BEADS) return;
@@ -404,6 +464,24 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     // the palette from jumping out from under the pointer.
     boardRef.current?.focus({ preventScroll: true });
   };
+
+  // Swap every placement of one material for another, in place: order,
+  // count and the selection (which is by index) all stay put. Picking the
+  // material already being replaced is a no-op that just leaves the mode.
+  const replaceMaterial = (fromId: string, toId: string) => {
+    setReplacingId(null);
+    if (fromId === toId) return;
+    mutateBeads(beads.map((b) => (b.material_id === fromId ? { material_id: toId } : b)));
+    boardRef.current?.focus({ preventScroll: true });
+  };
+
+  // The selection toolbar can offer Replace only when the selected run is one
+  // material — otherwise there's nothing unambiguous to swap out.
+  const selectionMaterialIds = range
+    ? new Set(beads.slice(range.start, range.end + 1).map((b) => b.material_id))
+    : null;
+  const selectionMaterialId =
+    selectionMaterialIds?.size === 1 ? [...selectionMaterialIds][0] : null;
 
   const deleteSelection = useCallback(() => {
     if (!range) return;
@@ -543,8 +621,19 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    // Ctrl/Cmd+Z undoes; Shift with it, or Ctrl/Cmd+Y, redoes.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+      const key = e.key.toLowerCase();
+      if (key === "z" || key === "y") {
+        e.preventDefault();
+        if (key === "y" || e.shiftKey) redo();
+        else undo();
+        return;
+      }
+    }
     if (e.key === "Escape") {
-      setSelection(null);
+      if (replacing) setReplacingId(null);
+      else setSelection(null);
       return;
     }
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
@@ -597,6 +686,10 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     setDirty(false);
     setSelection(null);
     setInsertion((design.beads ?? []).length);
+    // Neither undo nor replace mode crosses designs, and the load itself
+    // isn't a step.
+    history.reset();
+    setReplacingId(null);
   };
 
   const switchDesign = (id: string) => {
@@ -619,6 +712,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     setDirty(false);
     setSelection(null);
     setInsertion(0);
+    history.reset();
+    setReplacingId(null);
   };
 
   const saveDesign = async () => {
@@ -631,6 +726,14 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         setDesigns(designs.map((d) => (d.id === saved.id ? saved : d)));
       } else {
         const saved = await createDesign(fields);
+        // The working set built while unsaved belongs to this design now:
+        // move it to the design's slot before the key switch restores from it.
+        try {
+          localStorage.setItem(pinsKeyFor(saved.id), JSON.stringify(pinned));
+          localStorage.removeItem(pinsKey);
+        } catch {
+          // Losing the pins here is no worse than losing them anywhere else.
+        }
         setDesigns([saved, ...designs]);
         setCurrentId(saved.id);
       }
@@ -649,6 +752,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     try {
       await deleteDesign(currentId);
       setDesigns(designs.filter((d) => d.id !== currentId));
+      try {
+        localStorage.removeItem(pinsKey);
+      } catch {
+        // A stale pin slot is harmless.
+      }
       newDesign(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to delete design");
@@ -803,16 +911,28 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   /** One palette entry — used by both the working set and the filtered grid. */
   const paletteCard = (m: Material) => {
     const isPinned = pinned.includes(m.id);
-    const onStrand = strandMaterialIds.has(m.id);
+    const onStrand = strandCounts.has(m.id);
+    const onStrandCount = strandCounts.get(m.id) ?? 0;
+    // In replace mode every card becomes a candidate replacement; the one
+    // being replaced is flagged so a stray click on it reads as "never mind".
+    const isSource = replacing?.id === m.id;
     return (
       <div
         key={m.id}
-        className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-purple-400 group"
+        className={`flex items-center gap-3 bg-white border rounded-lg px-3 py-2 hover:border-purple-400 group ${
+          isSource ? "border-purple-500 ring-2 ring-purple-200" : "border-gray-200"
+        }`}
       >
         <button
-          onClick={() => addBead(m.id)}
+          onClick={() => (replacing ? replaceMaterial(replacing.id, m.id) : addBead(m.id))}
           className="flex items-center gap-3 flex-1 text-left min-w-0"
-          title="Add to strand"
+          title={
+            !replacing
+              ? "Add to strand"
+              : isSource
+                ? "This is the one being replaced — click to cancel"
+                : `Replace all ${replacingCount} ${replacing.name} with this`
+          }
         >
           <span className="w-9 flex justify-center shrink-0">
             <BeadSwatch visual={m.visual} size={32} seed={m.id} />
@@ -829,29 +949,34 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               )}
             </span>
           </span>
-          <Plus className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
+          {isSource ? (
+            <X className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
+          ) : replacing ? (
+            <Replace className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
+          ) : (
+            <Plus className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
+          )}
         </button>
-        {onStrand ? (
-          // Already held by the design: pinning it would change nothing you
-          // could see, so this reads as status, not a control.
-          <span
-            className="p-1 shrink-0 text-purple-400"
-            title="In the design — stays here while it's on the strand"
-          >
-            <Lock className="w-3.5 h-3.5" />
-          </span>
-        ) : (
+        {onStrand && !replacing && (
           <button
-            onClick={() => togglePin(m.id)}
-            className={`p-1 shrink-0 ${
-              isPinned ? "text-purple-600" : "text-gray-300 hover:text-purple-600"
-            }`}
-            aria-pressed={isPinned}
-            title={isPinned ? "Unpin from working set" : "Pin to working set"}
+            onClick={() => setReplacingId(m.id)}
+            className="p-1 text-gray-300 hover:text-purple-600 shrink-0"
+            title={`Replace all ${onStrandCount} on the strand with…`}
+            aria-label={`Replace all ${onStrandCount} ${m.name} on the strand`}
           >
-            <Pin className={`w-3.5 h-3.5 ${isPinned ? "fill-current" : ""}`} />
+            <Replace className="w-3.5 h-3.5" />
           </button>
         )}
+        <button
+          onClick={() => togglePin(m.id)}
+          className={`p-1 shrink-0 ${
+            isPinned ? "text-purple-600" : "text-gray-300 hover:text-purple-600"
+          }`}
+          aria-pressed={isPinned}
+          title={isPinned ? "Unpin from working set" : "Pin to working set"}
+        >
+          <Pin className={`w-3.5 h-3.5 ${isPinned ? "fill-current" : ""}`} />
+        </button>
         <button
           onClick={() => setDetailId(m.id)}
           className="p-1 text-gray-300 hover:text-purple-600 shrink-0"
@@ -1309,6 +1434,26 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
           <div className="flex items-center gap-1">
             <button
+              onClick={undo}
+              disabled={!history.canUndo}
+              className="flex items-center px-2 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Undo (Ctrl+Z / ⌘Z)"
+              aria-label="Undo"
+            >
+              <Undo2 className="w-5 h-5" />
+            </button>
+            <button
+              onClick={redo}
+              disabled={!history.canRedo}
+              className="flex items-center px-2 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Redo (Ctrl+Shift+Z / ⌘⇧Z / Ctrl+Y)"
+              aria-label="Redo"
+            >
+              <Redo2 className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
               onClick={() => repeatSelection(repeatCount)}
               disabled={!range}
               className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1344,6 +1489,19 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           >
             <Trash2 className="w-4 h-4 mr-1" />
             Remove
+          </button>
+          <button
+            onClick={() => selectionMaterialId && setReplacingId(selectionMaterialId)}
+            disabled={!selectionMaterialId}
+            className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            title={
+              selectionMaterialId
+                ? "Swap every bead of the selected material — anywhere on the strand — for one you pick from the palette"
+                : "Select beads of a single material to replace all of them"
+            }
+          >
+            <Replace className="w-4 h-4 mr-1" />
+            Replace all…
           </button>
           <button
             onClick={clearAll}
@@ -1396,7 +1554,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             <>
               Drag beads to rearrange · click between beads or use arrow keys to
               move the insertion point (Shift+arrows select, Esc clears) ·
-              Backspace removes the last-placed bead.
+              Backspace removes the last-placed bead · Ctrl+Z / ⌘Z undoes, Ctrl+Shift+Z redoes.
             </>
           )}
         </p>
@@ -1413,12 +1571,27 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             </span>
           )}
         </div>
+        {replacing && (
+          <div className="mb-3 flex flex-wrap items-center gap-3 bg-purple-100 border border-purple-300 text-purple-900 rounded-lg px-3 py-2 text-sm">
+            <Replace className="w-4 h-4 shrink-0" />
+            <span className="flex-1 min-w-0">
+              Replacing all {replacingCount} <strong>{replacing.name}</strong> on the strand —
+              pick a replacement from the palette below, or press Esc / Cancel.
+            </span>
+            <button
+              onClick={() => setReplacingId(null)}
+              className="px-2 py-1 bg-white border border-purple-300 rounded-md hover:bg-purple-50"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
         {workingSet.length > 0 && (
           <div className="mb-4 bg-purple-50/70 border border-purple-200 rounded-lg p-3">
             {pinned.length > 0 && (
               <div className="flex justify-end mb-2">
                 <button
-                  onClick={() => setPinned([])}
+                  onClick={() => updatePinned(() => [])}
                   className="text-xs text-purple-700/70 hover:text-purple-900"
                 >
                   Unpin all
