@@ -18,7 +18,7 @@ export type Side = "left" | "right";
 export const reflectGap = (gap: number, n: number) => n - gap;
 
 /** Index that reflects element `i` in a strand of n elements. */
-export const reflectIndex = (i: number, n: number) => n - 1 - i;
+const reflectIndex = (i: number, n: number) => n - 1 - i;
 
 /** True when the strand reads the same from both ends (by material). */
 export function isPalindrome(beads: DesignBead[]): boolean {

@@ -469,13 +469,35 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // mode — and say where the caret lands. Shared by add, repeat and fill so
   // each stays one undo step.
   const plainInsert = (gap: number, items: DesignBead[]) => {
-    const at = Math.min(gap, beads.length);
+    const at = Math.min(Math.max(gap, 0), beads.length);
     const next = [...beads];
     next.splice(at, 0, ...items);
     return { beads: next, insertion: at + items.length };
   };
   const insertRun = (gap: number, items: DesignBead[]) =>
     mirror ? mirroredInsert(beads, gap, items) : plainInsert(gap, items);
+
+  // A mirrored insert can land its reflected copy before the selection,
+  // shifting the beads it points at: follow them, or drop the selection if
+  // the copy split it. (A plain insert after the selection never moves it.)
+  const followSelection = (gap: number, inserted: number) => {
+    if (!mirror || !selection || !range) return;
+    const n = beads.length;
+    const r = reflectGap(Math.min(gap, n), n);
+    if (r <= range.start) {
+      setSelection({ anchor: selection.anchor + inserted, focus: selection.focus + inserted });
+    } else if (r <= range.end) {
+      setSelection(null);
+    }
+  };
+
+  // Remove an inclusive range — and its reflection in mirror mode — as one
+  // edit, saying where the caret lands. Shared by the selection delete and
+  // Backspace.
+  const deleteRange = (start: number, end: number) =>
+    mirror
+      ? mirroredDelete(beads, start, end)
+      : { beads: beads.filter((_, i) => i < start || i > end), insertion: start };
 
   const addBead = (materialId: string) => {
     // The first bead on an empty strand becomes the axis itself — mirroring
@@ -516,13 +538,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
 
   const deleteSelection = useCallback(() => {
     if (!range) return;
-    // In mirror mode the range's reflection goes with it (as one edit).
-    const removed = mirror
-      ? mirroredDelete(beads, range.start, range.end)
-      : {
-          beads: beads.filter((_, i) => i < range.start || i > range.end),
-          insertion: range.start,
-        };
+    const removed = deleteRange(range.start, range.end);
     mutateBeads(removed.beads);
     setSelection(null);
     setInsertion(removed.insertion);
@@ -538,9 +554,10 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       times = Math.min(times, Math.floor((MAX_BEADS - beads.length) / (2 * pattern.length)));
       if (times < 1) return;
     }
-    const copies = Array.from({ length: times }, () => pattern.map((b) => ({ ...b })));
-    const placed = insertRun(range.end + 1, copies.flat());
+    const items = Array.from({ length: times }, () => pattern.map((b) => ({ ...b }))).flat();
+    const placed = insertRun(range.end + 1, items);
     mutateBeads(placed.beads);
+    followSelection(range.end + 1, items.length);
     setInsertion(Math.min(placed.insertion, MAX_BEADS));
   };
 
@@ -568,9 +585,10 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       count += pattern.length * perPlacement;
     }
     if (times === 0) return;
-    const copies = Array.from({ length: times }, () => pattern.map((b) => ({ ...b })));
-    const placed = insertRun(beads.length, copies.flat());
+    const items = Array.from({ length: times }, () => pattern.map((b) => ({ ...b }))).flat();
+    const placed = insertRun(beads.length, items);
     mutateBeads(placed.beads);
+    followSelection(beads.length, items.length);
     setInsertion(placed.insertion);
   };
 
@@ -743,16 +761,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     // i.e. the most recently placed one.
     const at = Math.min(insertion, beads.length);
     if (at === 0) return;
-    if (mirror) {
-      const removed = mirroredDelete(beads, at - 1, at - 1);
-      mutateBeads(removed.beads);
-      setInsertion(removed.insertion);
-      return;
-    }
-    const next = [...beads];
-    next.splice(at - 1, 1);
-    mutateBeads(next);
-    setInsertion(at - 1);
+    const removed = deleteRange(at - 1, at - 1);
+    mutateBeads(removed.beads);
+    setInsertion(removed.insertion);
   };
 
   // --- design persistence ---
@@ -904,6 +915,26 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   };
 
   /** Caret/drop/target tick drawn perpendicular to the worn curve. */
+  // Vertical marker on the straight layout, spanning the strand's thickness
+  // plus `extraPx` each side — the counterpart of curveTick below.
+  const straightTick = (
+    xPx: number,
+    stroke: string,
+    strokeWidth: number,
+    extraPx: number,
+    dash?: string
+  ) => (
+    <line
+      x1={xPx}
+      y1={centerY - (maxWidthMm * pxPerMm) / 2 - extraPx}
+      x2={xPx}
+      y2={centerY + (maxWidthMm * pxPerMm) / 2 + extraPx}
+      stroke={stroke}
+      strokeWidth={strokeWidth}
+      strokeDasharray={dash}
+    />
+  );
+
   const curveTick = (
     sMm: number,
     stroke: string,
@@ -1439,47 +1470,18 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             {/* mirror axis, and a ghost of where the reflected insert lands */}
             {mirror &&
               beadCount > 0 &&
-              (layout === "curve" ? (
-                curveTick(axisS + wornOffsetMm, "#a8a29e", 1, 10, "3 3")
-              ) : (
-                <line
-                  x1={marginLeft + axisS * pxPerMm}
-                  y1={centerY - (maxWidthMm * pxPerMm) / 2 - 10}
-                  x2={marginLeft + axisS * pxPerMm}
-                  y2={centerY + (maxWidthMm * pxPerMm) / 2 + 10}
-                  stroke="#a8a29e"
-                  strokeWidth={1}
-                  strokeDasharray="3 3"
-                />
-              ))}
+              (layout === "curve"
+                ? curveTick(axisS + wornOffsetMm, "#a8a29e", 1, 10, "3 3")
+                : straightTick(marginLeft + axisS * pxPerMm, "#a8a29e", 1, 10, "3 3"))}
             {showGhost &&
-              (layout === "curve" ? (
-                curveTick(sAtGap(ghostGap) + wornOffsetMm, "#c4b5fd", 2, 4, "3 3")
-              ) : (
-                <line
-                  x1={ghostX}
-                  y1={centerY - (maxWidthMm * pxPerMm) / 2 - 4}
-                  x2={ghostX}
-                  y2={centerY + (maxWidthMm * pxPerMm) / 2 + 4}
-                  stroke="#c4b5fd"
-                  strokeWidth={2}
-                  strokeDasharray="3 3"
-                />
-              ))}
+              (layout === "curve"
+                ? curveTick(sAtGap(ghostGap) + wornOffsetMm, "#c4b5fd", 2, 4, "3 3")
+                : straightTick(ghostX, "#c4b5fd", 2, 4, "3 3"))}
 
             {/* insertion caret */}
-            {layout === "curve" ? (
-              curveTick(sAtGap(insertion) + wornOffsetMm, "#a855f7", 2, 4)
-            ) : (
-              <line
-                x1={insertionX}
-                y1={centerY - (maxWidthMm * pxPerMm) / 2 - 4}
-                x2={insertionX}
-                y2={centerY + (maxWidthMm * pxPerMm) / 2 + 4}
-                stroke="#a855f7"
-                strokeWidth={2}
-              />
-            )}
+            {layout === "curve"
+              ? curveTick(sAtGap(insertion) + wornOffsetMm, "#a855f7", 2, 4)
+              : straightTick(insertionX, "#a855f7", 2, 4)}
 
             {/* drop indicator while dragging */}
             {dropIndex !== null &&
@@ -1645,7 +1647,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                   ? "bg-purple-100 border-purple-300 text-purple-700 font-medium"
                   : "bg-white border-gray-300 hover:bg-gray-100"
               }`}
-              title="Mirror edits around the strand's center (M)"
+              title="Mirror edits around the strand's center (M) — build to the right of the pendant; drag isn't mirrored"
             >
               <FlipHorizontal2 className="w-4 h-4 mr-1" />
               Mirror
@@ -1654,9 +1656,16 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               onClick={symmetrize}
               disabled={symmetric || beads.length < 2}
               className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Copy the side the cursor is on over the other side"
+              title={
+                beads.length < 2
+                  ? "Add at least two beads first"
+                  : symmetric
+                    ? "Strand is already symmetric"
+                    : `Copy the ${cursorSide} side over the other`
+              }
             >
               Make symmetric
+              {!symmetric && beads.length >= 2 && ` (keep ${cursorSide})`}
             </button>
             {mirror && !symmetric && (
               <span className="text-xs text-amber-700">Strand isn&apos;t symmetric</span>
@@ -1705,8 +1714,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             <>
               Drag beads to rearrange · click between beads or use arrow keys to
               move the insertion point (Shift+arrows select, Esc clears) ·
-              Backspace removes the last-placed bead · M toggles mirror mode ·
-              Ctrl+Z / ⌘Z undoes, Ctrl+Shift+Z redoes.
+              Backspace removes the last-placed bead{mirror && " and its mirror"} · M toggles
+              mirror mode{mirror && " (drag isn't mirrored)"} · Ctrl+Z / ⌘Z undoes,
+              Ctrl+Shift+Z redoes.
             </>
           )}
         </p>
