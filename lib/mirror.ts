@@ -28,15 +28,6 @@ export function isPalindrome(beads: DesignBead[]): boolean {
   return true;
 }
 
-/** Which side of the axis a gap is on; the exact center counts as right. */
-export const gapSide = (gap: number, n: number): Side =>
-  gap * 2 < n ? "left" : "right";
-
-/** Which side of the axis an element is on; an odd strand's center counts
- * as right. */
-export const indexSide = (i: number, n: number): Side =>
-  i < Math.floor(n / 2) ? "left" : "right";
-
 const clone = (items: DesignBead[]) => items.map((b) => ({ ...b }));
 
 /**
@@ -94,18 +85,29 @@ export function mirroredDelete(
   return { beads: next, insertion };
 }
 
+/** A center to fold around: the half-open range of elements that stay put
+ * (the pendant, say), or an empty range at a gap to fold at that gap. */
+export type FoldCenter = { start: number; end: number };
+
 /**
- * Reflect one side onto the other so the strand becomes a palindrome. The
- * kept side is unchanged, an odd strand's center element stays, and the
- * length is preserved — so any cursor on the kept side stays valid.
+ * Fold the strand around `center`: the kept side and the center stay as
+ * they are, and the kept side's reversal replaces the other. The result is
+ * a palindrome around the center, so the center becomes the strand's
+ * middle — which is what makes an off-center pendant central again.
  */
-export function makeSymmetric(beads: DesignBead[], keep: Side): DesignBead[] {
-  const n = beads.length;
-  const half = Math.floor(n / 2);
-  const center = n % 2 === 1 ? [beads[half]] : [];
-  const left = beads.slice(0, half);
-  const right = beads.slice(n - half);
+export function makeSymmetric(
+  beads: DesignBead[],
+  center: FoldCenter,
+  keep: Side
+): DesignBead[] {
+  const middle = beads.slice(center.start, center.end);
+  const left = beads.slice(0, center.start);
+  const right = beads.slice(center.end);
   return keep === "left"
-    ? [...left, ...center, ...clone(left).reverse()]
-    : [...clone(right).reverse(), ...center, ...right];
+    ? [...left, ...middle, ...clone(left).reverse()]
+    : [...clone(right).reverse(), ...middle, ...right];
 }
+
+/** True when the two strands hold the same materials in the same order. */
+export const sameStrand = (a: DesignBead[], b: DesignBead[]) =>
+  a.length === b.length && a.every((x, i) => x.material_id === b[i].material_id);

@@ -42,13 +42,14 @@ import {
 import { curveGeometry, curvePath } from "@/lib/strand-layout";
 import { useHistory } from "@/lib/useHistory";
 import {
-  gapSide,
-  indexSide,
   isPalindrome,
   makeSymmetric,
   mirroredDelete,
   mirroredInsert,
   reflectGap,
+  sameStrand,
+  type FoldCenter,
+  type Side,
 } from "@/lib/mirror";
 import { presentCategories, type Design, type DesignBead, type Material } from "@/lib/types";
 
@@ -592,19 +593,39 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     setInsertion(placed.insertion);
   };
 
-  // Whether the strand already reads the same from both ends, and which
-  // side the cursor is on — the side Make symmetric keeps.
+  // Whether the strand already reads the same from both ends (mirror mode's
+  // invariant, which the asymmetry note watches).
   const symmetric = useMemo(() => isPalindrome(beads), [beads]);
-  const cursorSide = selection
-    ? indexSide(selection.focus, beads.length)
-    : gapSide(Math.min(insertion, beads.length), beads.length);
 
-  // One-shot: reflect the cursor's side onto the other. Works with mirror
-  // mode off too — it's how an asymmetric strand gets into shape before
-  // mirroring from there.
+  // Make symmetric folds the strand at the cursor, not at its middle — on
+  // an asymmetric strand the pendant usually isn't central yet. A selected
+  // run is the center and stays put (click the pendant to fold around it);
+  // otherwise the insertion gap is the fold line. The longer side is the
+  // one worth keeping; a tie keeps the right.
+  const foldCenter: FoldCenter = range
+    ? { start: range.start, end: range.end + 1 }
+    : { start: Math.min(insertion, beads.length), end: Math.min(insertion, beads.length) };
+  const keepSide: Side =
+    foldCenter.start > beads.length - foldCenter.end ? "left" : "right";
+  const folded = useMemo(
+    () => makeSymmetric(beads, foldCenter, keepSide),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [beads, foldCenter.start, foldCenter.end, keepSide]
+  );
+  const canFold =
+    beads.length > 0 && folded.length <= MAX_BEADS && !sameStrand(folded, beads);
+
+  // One-shot; works with mirror mode off too — it's how an asymmetric
+  // strand gets into shape before mirroring from there. Afterwards the
+  // cursor sits just right of the center, so mirrored adds build outward.
   const symmetrize = () => {
-    if (symmetric || beads.length < 2) return;
-    mutateBeads(makeSymmetric(beads, cursorSide));
+    if (!canFold) return;
+    const shift = keepSide === "left" ? 0 : beads.length - foldCenter.end - foldCenter.start;
+    const start = foldCenter.start + shift;
+    const end = foldCenter.end + shift;
+    mutateBeads(folded);
+    setSelection(range ? { anchor: start, focus: end - 1 } : null);
+    setInsertion(end);
     boardRef.current?.focus({ preventScroll: true });
   };
 
@@ -1654,18 +1675,20 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             </button>
             <button
               onClick={symmetrize}
-              disabled={symmetric || beads.length < 2}
+              disabled={!canFold}
               className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
               title={
-                beads.length < 2
-                  ? "Add at least two beads first"
-                  : symmetric
-                    ? "Strand is already symmetric"
-                    : `Copy the ${cursorSide} side over the other`
+                beads.length === 0
+                  ? "Place some beads first"
+                  : !canFold
+                    ? "Already symmetric around the cursor"
+                    : range
+                      ? `Keep the selected ${range.end === range.start ? "bead" : "run"} as the center and mirror the ${keepSide} side onto the other`
+                      : `Fold at the caret: mirror the ${keepSide} side onto the other`
               }
             >
               Make symmetric
-              {!symmetric && beads.length >= 2 && ` (keep ${cursorSide})`}
+              {canFold && ` (keep ${keepSide})`}
             </button>
             {mirror && !symmetric && (
               <span className="text-xs text-amber-700">Strand isn&apos;t symmetric</span>
