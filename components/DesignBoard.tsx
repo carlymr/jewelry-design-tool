@@ -600,34 +600,44 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // Make symmetric folds the strand at the cursor, not at its middle — on
   // an asymmetric strand the pendant usually isn't central yet. A selected
   // run is the center and stays put (click the pendant to fold around it);
-  // otherwise the insertion gap is the fold line. The longer side is the
-  // one worth keeping; a tie keeps the right.
+  // otherwise the insertion gap is the fold line. The user picks which side
+  // survives: the buttons offer both, each disabled when it would change
+  // nothing (or overflow the strand).
   const foldCenter: FoldCenter = range
     ? { start: range.start, end: range.end + 1 }
     : { start: Math.min(insertion, beads.length), end: Math.min(insertion, beads.length) };
-  const keepSide: Side =
-    foldCenter.start > beads.length - foldCenter.end ? "left" : "right";
-  const folded = useMemo(
-    () => makeSymmetric(beads, foldCenter, keepSide),
+  const folds = useMemo(() => {
+    const fold = (keep: Side) => {
+      const next = makeSymmetric(beads, foldCenter, keep);
+      const ok = beads.length > 0 && next.length <= MAX_BEADS && !sameStrand(next, beads);
+      return { next, ok };
+    };
+    return { left: fold("left"), right: fold("right") };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [beads, foldCenter.start, foldCenter.end, keepSide]
-  );
-  const canFold =
-    beads.length > 0 && folded.length <= MAX_BEADS && !sameStrand(folded, beads);
+  }, [beads, foldCenter.start, foldCenter.end]);
 
   // One-shot; works with mirror mode off too — it's how an asymmetric
   // strand gets into shape before mirroring from there. Afterwards the
   // cursor sits just right of the center, so mirrored adds build outward.
-  const symmetrize = () => {
-    if (!canFold) return;
-    const shift = keepSide === "left" ? 0 : beads.length - foldCenter.end - foldCenter.start;
+  const symmetrize = (keep: Side) => {
+    const fold = folds[keep];
+    if (!fold.ok) return;
+    const shift = keep === "left" ? 0 : beads.length - foldCenter.end - foldCenter.start;
     const start = foldCenter.start + shift;
     const end = foldCenter.end + shift;
-    mutateBeads(folded);
+    mutateBeads(fold.next);
     setSelection(range ? { anchor: start, focus: end - 1 } : null);
     setInsertion(end);
     boardRef.current?.focus({ preventScroll: true });
   };
+  const foldTitle = (keep: Side) =>
+    beads.length === 0
+      ? "Place some beads first"
+      : !folds[keep].ok
+        ? `Already what keeping the ${keep} side would give`
+        : range
+          ? `Keep the selected ${range.end === range.start ? "bead" : "run"} as the center and mirror the ${keep} side onto the other`
+          : `Fold at the caret: mirror the ${keep} side onto the other`;
 
   const clearAll = () => {
     if (beads.length > 0 && !confirm("Remove all beads from the strand?")) return;
@@ -1673,22 +1683,22 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               <FlipHorizontal2 className="w-4 h-4 mr-1" />
               Mirror
             </button>
+            <span className="ml-2 text-gray-600">Make symmetric:</span>
             <button
-              onClick={symmetrize}
-              disabled={!canFold}
-              className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-              title={
-                beads.length === 0
-                  ? "Place some beads first"
-                  : !canFold
-                    ? "Already symmetric around the cursor"
-                    : range
-                      ? `Keep the selected ${range.end === range.start ? "bead" : "run"} as the center and mirror the ${keepSide} side onto the other`
-                      : `Fold at the caret: mirror the ${keepSide} side onto the other`
-              }
+              onClick={() => symmetrize("left")}
+              disabled={!folds.left.ok}
+              className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-l-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              title={foldTitle("left")}
             >
-              Make symmetric
-              {canFold && ` (keep ${keepSide})`}
+              ◀ keep left
+            </button>
+            <button
+              onClick={() => symmetrize("right")}
+              disabled={!folds.right.ok}
+              className="flex items-center px-3 py-1.5 -ml-px bg-white border border-gray-300 rounded-r-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              title={foldTitle("right")}
+            >
+              keep right ▶
             </button>
             {mirror && !symmetric && (
               <span className="text-xs text-amber-700">Strand isn&apos;t symmetric</span>
