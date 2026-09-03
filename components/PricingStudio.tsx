@@ -269,8 +269,11 @@ export default function PricingStudio({ materials }: Props) {
   const beadUsage = useMemo(() => {
     if (!design) return [];
     const counts = new Map<string, number>();
+    const add = (id: string) => counts.set(id, (counts.get(id) ?? 0) + 1);
     for (const b of design.beads ?? []) {
-      counts.set(b.material_id, (counts.get(b.material_id) ?? 0) + 1);
+      add(b.material_id);
+      // A cabochon's bezel setting (GRA-29) is used material like any other.
+      if (b.setting_id) add(b.setting_id);
     }
     return Array.from(counts, ([materialId, count]) => {
       const material = materialById.get(materialId) ?? null;

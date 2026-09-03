@@ -111,6 +111,10 @@ export interface Design {
 
 export interface DesignBead {
   material_id: string;
+  /** The bezel-setting material this cabochon sits in (GRA-29). Only
+   * meaningful on a cabochon; the pair draws and hangs as one pendant and
+   * the bezel draws down stock like a placed element. */
+  setting_id?: string;
 }
 
 /** An off-board material used by a design (clasp, wire, etc.). */

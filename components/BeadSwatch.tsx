@@ -228,6 +228,54 @@ function shapeElement(visual: BeadVisual, L: number, W: number, rand: () => numb
   }
 }
 
+/** Bezel wall thickness for a recess of L×W px. Clamped so the recess
+ * always exists — a null here would fall back to the filled bead pipeline
+ * and look like a cabochon. */
+const bezelRim = (L: number, W: number) =>
+  Math.min(Math.max(1, Math.min(L, W) * 0.12), Math.min(L, W) * 0.3);
+
+/** Wall thickness (px) of a bezel setting drawn at this scale. */
+export function bezelRimPx(setting: BeadVisual, pxPerMm: number): number {
+  return bezelRim(setting.length_mm * pxPerMm, setting.width_mm * pxPerMm);
+}
+
+/** Box (px) a cabochon-in-bezel pendant occupies: the recess plus the wall
+ * on every side. Local axes match `Bead`: L along the strand, W across. */
+export function settingBoxPx(setting: BeadVisual, pxPerMm: number): { L: number; W: number } {
+  const sw = bezelRimPx(setting, pxPerMm);
+  return { L: setting.length_mm * pxPerMm + 2 * sw, W: setting.width_mm * pxPerMm + 2 * sw };
+}
+
+/** The bezel wall as a thick outer rim with a thin inner lip, filling a
+ * boxL×boxW box with a wall `sw` thick. An empty setting is drawn inside
+ * its recess box (so it reads as the frame a cab drops into); a setting
+ * around a stone is drawn in a box `sw` larger on every side, so the recess
+ * it frames is exactly the stone's size. */
+function bezelFrame(
+  outline: CabOutline | null | undefined,
+  boxL: number,
+  boxW: number,
+  sw: number,
+  paint: string,
+  seed: string
+) {
+  // The rim follows the recess outline, inset so the stroke stays in the box.
+  const d = outlinePath(outline, boxL - sw, boxW - sw, seededRandom(seed + "bezel"));
+  const lip = Math.max(0.05, 1 - (sw * 2.8) / Math.min(boxL, boxW));
+  return (
+    <g fill="none" stroke={paint} transform={`translate(${sw / 2}, ${sw / 2})`}>
+      {/* a faint fill in the well keeps it from reading as a jump ring */}
+      <path d={d} fill={paint} fillOpacity={0.18} strokeWidth={sw} strokeLinejoin="round" />
+      <path
+        d={d}
+        transform={`translate(${(boxL - sw) / 2}, ${(boxW - sw) / 2}) scale(${lip}) translate(${-(boxL - sw) / 2}, ${-(boxW - sw) / 2})`}
+        strokeWidth={Math.max(0.4, sw * 0.35)}
+        opacity={0.7}
+      />
+    </g>
+  );
+}
+
 /** Non-bead components (chain, clasps, rings, connectors) are mostly open
  * metal shapes — strokes and bars, not filled silhouettes — so they bypass
  * the gradient/pattern/facet pipeline and draw themselves directly. Returns
@@ -355,28 +403,9 @@ function componentElement(
         </g>
       );
     }
-    case "bezel": {
-      // Empty setting: the bezel wall as a thick outer rim with a thin inner
-      // lip, sized to the recess so it reads as the frame a cab drops into.
-      // Rim clamped so the recess always exists — a null here would fall
-      // back to the filled bead pipeline and look like a cabochon.
-      const sw = Math.min(Math.max(1, Math.min(L, W) * 0.12), Math.min(L, W) * 0.3);
-      // The rim follows the recess outline, inset so the stroke stays in the box.
-      const d = outlinePath(visual.outline, L - sw, W - sw, seededRandom(seed + "bezel"));
-      const lip = Math.max(0.05, 1 - (sw * 2.8) / Math.min(L, W));
-      return (
-        <g fill="none" stroke={paint} transform={`translate(${sw / 2}, ${sw / 2})`}>
-          {/* a faint fill in the well keeps it from reading as a jump ring */}
-          <path d={d} fill={paint} fillOpacity={0.18} strokeWidth={sw} strokeLinejoin="round" />
-          <path
-            d={d}
-            transform={`translate(${(L - sw) / 2}, ${(W - sw) / 2}) scale(${lip}) translate(${-(L - sw) / 2}, ${-(W - sw) / 2})`}
-            strokeWidth={Math.max(0.4, sw * 0.35)}
-            opacity={0.7}
-          />
-        </g>
-      );
-    }
+    case "bezel":
+      // Empty setting, drawn inside its own L×W box (the recess size).
+      return bezelFrame(visual.outline, L, W, bezelRim(L, W), paint, seed);
     case "bail": {
       // Pinch bail: a loop on top with two prongs pinching down to a point.
       const r = Math.max(0.8, Math.min(L * 0.42, W * 0.3));
@@ -444,26 +473,11 @@ function componentElement(
   }
 }
 
-interface BeadProps {
-  visual: BeadVisual;
-  pxPerMm: number;
-  /** Seed for deterministic irregularity — pass the material id. */
-  seed?: string;
-}
-
-/** The bead itself, as a <g> with its top-left at the origin. Memoized so
- * strand-wide re-renders (selection, caret moves) skip unchanged beads. */
-export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead" }: BeadProps) {
-  const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
-  const L = Math.max(1, visual.length_mm * pxPerMm);
-  const W = Math.max(1, visual.width_mm * pxPerMm);
+/** Fill gradient for a visual's finish, registered under `id`. */
+function finishGradient(id: string, visual: BeadVisual) {
   const c = visual.color;
-  const gradId = `bg-${uid}`;
-  const clipId = `bc-${uid}`;
-
-  const gradient =
-    visual.finish === "metallic" ? (
-      <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+  return visual.finish === "metallic" ? (
+      <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stopColor={shade(c, 0.55)} />
         <stop offset="35%" stopColor={shade(c, -0.1)} />
         <stop offset="52%" stopColor={shade(c, 0.45)} />
@@ -471,24 +485,65 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead" }: BeadP
         <stop offset="100%" stopColor={shade(c, 0.1)} />
       </linearGradient>
     ) : visual.finish === "matte" ? (
-      <radialGradient id={gradId} cx="40%" cy="35%" r="80%">
+      <radialGradient id={id} cx="40%" cy="35%" r="80%">
         <stop offset="0%" stopColor={shade(c, 0.12)} />
         <stop offset="100%" stopColor={shade(c, -0.15)} />
       </radialGradient>
     ) : visual.finish === "pearl" ? (
-      <radialGradient id={gradId} cx="35%" cy="30%" r="80%">
+      <radialGradient id={id} cx="35%" cy="30%" r="80%">
         <stop offset="0%" stopColor={shade(c, 0.6)} />
         <stop offset="55%" stopColor={c} />
         <stop offset="100%" stopColor={shade(c, -0.12)} />
       </radialGradient>
     ) : (
       // glossy and transparent
-      <radialGradient id={gradId} cx="35%" cy="30%" r="80%">
+      <radialGradient id={id} cx="35%" cy="30%" r="80%">
         <stop offset="0%" stopColor={shade(c, 0.42)} />
         <stop offset="45%" stopColor={c} />
         <stop offset="100%" stopColor={shade(c, -0.28)} />
       </radialGradient>
     );
+}
+
+interface BeadProps {
+  visual: BeadVisual;
+  pxPerMm: number;
+  /** Seed for deterministic irregularity — pass the material id. */
+  seed?: string;
+  /** Bezel setting to frame a cabochon in (GRA-29): the pair draws as one
+   * element the size of `settingBoxPx`, stone centered in the recess.
+   * Ignored unless `visual` is a cabochon. */
+  setting?: BeadVisual | null;
+}
+
+/** The bead itself, as a <g> with its top-left at the origin. Memoized so
+ * strand-wide re-renders (selection, caret moves) skip unchanged beads. */
+export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead", setting }: BeadProps) {
+  const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
+  const L = Math.max(1, visual.length_mm * pxPerMm);
+  const W = Math.max(1, visual.width_mm * pxPerMm);
+  const c = visual.color;
+  const gradId = `bg-${uid}`;
+  const clipId = `bc-${uid}`;
+
+  if (setting && visual.shape === "cabochon" && setting.shape === "bezel") {
+    // Stone in its setting: the metal rim drawn around the recess, with the
+    // stone centered in it (a fitting recess is at most slightly larger).
+    const sw = bezelRimPx(setting, pxPerMm);
+    const box = settingBoxPx(setting, pxPerMm);
+    const metalId = `bs-${uid}`;
+    return (
+      <g>
+        <defs>{finishGradient(metalId, setting)}</defs>
+        {bezelFrame(setting.outline, box.L, box.W, sw, `url(#${metalId})`, seed)}
+        <g transform={`translate(${(box.L - L) / 2}, ${(box.W - W) / 2})`}>
+          <Bead visual={visual} pxPerMm={pxPerMm} seed={seed} />
+        </g>
+      </g>
+    );
+  }
+
+  const gradient = finishGradient(gradId, visual);
 
   const component = componentElement(visual, L, W, `url(#${gradId})`, seed);
   if (component) {
@@ -665,6 +720,8 @@ interface BeadSwatchProps {
   size?: number;
   seed?: string;
   className?: string;
+  /** Bezel setting to frame a cabochon in; see `Bead`. */
+  setting?: BeadVisual | null;
 }
 
 /** Standalone swatch for palettes and previews, scaled to fit `size`. */
@@ -673,6 +730,7 @@ export default function BeadSwatch({
   size = 28,
   seed,
   className,
+  setting,
 }: BeadSwatchProps) {
   if (!visual) {
     return (
@@ -699,9 +757,18 @@ export default function BeadSwatch({
     );
   }
 
-  const pxPerMm = size / Math.max(visual.length_mm, visual.width_mm, 1);
-  const w = Math.max(2, visual.length_mm * pxPerMm);
-  const h = Math.max(2, visual.width_mm * pxPerMm);
+  const composed =
+    setting && visual.shape === "cabochon" && setting.shape === "bezel" ? setting : null;
+  // Scale to the element's footprint — the setting's box when framed.
+  const extentMm = composed
+    ? Math.max(settingBoxPx(composed, 1).L, settingBoxPx(composed, 1).W, 1)
+    : Math.max(visual.length_mm, visual.width_mm, 1);
+  const pxPerMm = size / extentMm;
+  const box = composed
+    ? settingBoxPx(composed, pxPerMm)
+    : { L: visual.length_mm * pxPerMm, W: visual.width_mm * pxPerMm };
+  const w = Math.max(2, box.L);
+  const h = Math.max(2, box.W);
   return (
     <svg
       width={w}
@@ -710,7 +777,7 @@ export default function BeadSwatch({
       className={className}
       overflow="visible"
     >
-      <Bead visual={visual} pxPerMm={pxPerMm} seed={seed} />
+      <Bead visual={visual} pxPerMm={pxPerMm} seed={seed} setting={composed} />
     </svg>
   );
 }
