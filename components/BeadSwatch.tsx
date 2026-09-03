@@ -2,6 +2,7 @@
 
 import { memo, useId } from "react";
 import type { BeadVisual, CabOutline } from "@/lib/bead-visual";
+import { alignedRecessMm } from "@/lib/bezel-fit";
 
 // Renders a bead from its stored visual spec. `Bead` is an SVG <g> at the
 // origin (for composing into the strand SVG); `BeadSwatch` wraps it in a
@@ -235,15 +236,23 @@ const bezelRim = (L: number, W: number) =>
   Math.min(Math.max(1, Math.min(L, W) * 0.12), Math.min(L, W) * 0.3);
 
 /** Wall thickness (px) of a bezel setting drawn at this scale. */
-export function bezelRimPx(setting: BeadVisual, pxPerMm: number): number {
+function bezelRimPx(setting: BeadVisual, pxPerMm: number): number {
   return bezelRim(setting.length_mm * pxPerMm, setting.width_mm * pxPerMm);
 }
 
 /** Box (px) a cabochon-in-bezel pendant occupies: the recess plus the wall
- * on every side. Local axes match `Bead`: L along the strand, W across. */
-export function settingBoxPx(setting: BeadVisual, pxPerMm: number): { L: number; W: number } {
+ * on every side, with the recess turned to line up with `stone`'s long
+ * axis (a fit is judged long-to-long, so the bezel may have been recorded
+ * the other way round). Local axes match `Bead`: L along the strand, W
+ * across. */
+export function settingBoxPx(
+  setting: BeadVisual,
+  pxPerMm: number,
+  stone: BeadVisual
+): { L: number; W: number } {
   const sw = bezelRimPx(setting, pxPerMm);
-  return { L: setting.length_mm * pxPerMm + 2 * sw, W: setting.width_mm * pxPerMm + 2 * sw };
+  const recess = alignedRecessMm(setting, stone);
+  return { L: recess.length_mm * pxPerMm + 2 * sw, W: recess.width_mm * pxPerMm + 2 * sw };
 }
 
 /** The bezel wall as a thick outer rim with a thin inner lip, filling a
@@ -530,7 +539,7 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead", setting
     // Stone in its setting: the metal rim drawn around the recess, with the
     // stone centered in it (a fitting recess is at most slightly larger).
     const sw = bezelRimPx(setting, pxPerMm);
-    const box = settingBoxPx(setting, pxPerMm);
+    const box = settingBoxPx(setting, pxPerMm, visual);
     const metalId = `bs-${uid}`;
     return (
       <g>
@@ -761,11 +770,11 @@ export default function BeadSwatch({
     setting && visual.shape === "cabochon" && setting.shape === "bezel" ? setting : null;
   // Scale to the element's footprint — the setting's box when framed.
   const extentMm = composed
-    ? Math.max(settingBoxPx(composed, 1).L, settingBoxPx(composed, 1).W, 1)
+    ? Math.max(settingBoxPx(composed, 1, visual).L, settingBoxPx(composed, 1, visual).W, 1)
     : Math.max(visual.length_mm, visual.width_mm, 1);
   const pxPerMm = size / extentMm;
   const box = composed
-    ? settingBoxPx(composed, pxPerMm)
+    ? settingBoxPx(composed, pxPerMm, visual)
     : { L: visual.length_mm * pxPerMm, W: visual.width_mm * pxPerMm };
   const w = Math.max(2, box.L);
   const h = Math.max(2, box.W);

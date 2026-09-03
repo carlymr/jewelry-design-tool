@@ -42,7 +42,14 @@ import {
   type BeadVisual,
 } from "@/lib/bead-visual";
 import { curveGeometry, curvePath } from "@/lib/strand-layout";
-import { fits, fittingBezels } from "@/lib/bezel-fit";
+import {
+  FIT_SLACK_MM,
+  faceAxes,
+  fits,
+  fittingBezels,
+  resolveSetting,
+  settingCandidates,
+} from "@/lib/bezel-fit";
 import { useHistory } from "@/lib/useHistory";
 import {
   isPalindrome,
@@ -252,16 +259,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   );
   const detailMaterial = detailId ? materialById.get(detailId) ?? null : null;
 
-  // The bezel a placed cabochon sits in (GRA-29). Only while the stone is
-  // still a cabochon and the setting still exists as a bezel — otherwise the
-  // element degrades to a bare stone rather than breaking.
+  // The bezel a placed cabochon sits in (GRA-29). A stale setting resolves
+  // to nothing, and every consumer — render, counts, cost, replace — goes
+  // through this one resolver so they can't disagree about it.
   const settingOf = useCallback(
-    (b: DesignBead): Material | undefined => {
-      if (!b.setting_id) return undefined;
-      if (materialById.get(b.material_id)?.visual?.shape !== "cabochon") return undefined;
-      const setting = materialById.get(b.setting_id);
-      return setting?.visual?.shape === "bezel" ? setting : undefined;
-    },
+    (b: DesignBead) => resolveSetting(b, materialById),
     [materialById]
   );
 
@@ -409,10 +411,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     const add = (id: string) => counts.set(id, (counts.get(id) ?? 0) + 1);
     for (const b of beads) {
       add(b.material_id);
-      if (b.setting_id) add(b.setting_id);
+      const setting = settingOf(b);
+      if (setting) add(setting.id);
     }
     return counts;
-  }, [beads]);
+  }, [beads, settingOf]);
 
   // Replace mode only means something while its material is still on the
   // strand. Once the last one is removed the id is cleared outright, so the
@@ -578,14 +581,15 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     const to = materialById.get(toId)?.visual ?? null;
     mutateBeads(
       beads.map((b) => {
+        const setting = settingOf(b);
         if (b.material_id === fromId) {
-          // The setting survives only if the new stone still fits it.
-          const bezel = b.setting_id ? materialById.get(b.setting_id)?.visual : null;
-          return bezel && to && fits(to, bezel)
-            ? { material_id: toId, setting_id: b.setting_id }
+          // The setting survives only if the new stone still fits it (a
+          // stale one is dropped here too).
+          return setting?.visual && to && fits(to, setting.visual)
+            ? { material_id: toId, setting_id: setting.id }
             : { material_id: toId };
         }
-        if (b.setting_id === fromId) {
+        if (setting?.id === fromId) {
           // Swapping a bezel that's in use as a setting: keep the stone set
           // if the new bezel fits it, else it's back to needing a setting.
           const stone = materialById.get(b.material_id)?.visual ?? null;
@@ -605,10 +609,37 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     selectedBead && materialById.get(selectedBead.material_id)?.visual?.shape === "cabochon"
       ? materialById.get(selectedBead.material_id) ?? null
       : null;
-  const fittingSettings = useMemo(
-    () => (selectedCab ? fittingBezels(selectedCab, materials) : []),
+  const settingChoices = useMemo(
+    () =>
+      selectedCab
+        ? settingCandidates(selectedCab, materials)
+        : { fitting: [], sameOutline: [], closest: null },
     [selectedCab, materials]
   );
+  // Why the picker is empty, in the maker's terms: the wrong shape, or the
+  // right shape at the wrong size (and how close the nearest one came).
+  const noSettingsNote = (() => {
+    const stone = selectedCab?.visual;
+    if (!stone) return "";
+    const outline = stone.outline ?? "oval";
+    const dims = (v: BeadVisual) => faceAxes(v).join("×");
+    const { sameOutline, closest } = settingChoices;
+    if (!closest) return `No bezels with a ${outline} recess in inventory`;
+    const n = sameOutline.length;
+    return `${n} ${outline} bezel${n === 1 ? "" : "s"}, none within ${FIT_SLACK_MM} mm of ${dims(stone)} mm (closest: ${dims(closest.visual)})`;
+  })();
+
+  // "Undrilled — N settings fit" on placeholder cabs' palette cards, counted
+  // once per material rather than per card per render.
+  const fitCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const m of placeable) {
+      if (pendantAttachment(m.visual) === "placeholder") {
+        counts.set(m.id, fittingBezels(m, materials).length);
+      }
+    }
+    return counts;
+  }, [placeable, materials]);
   // The list only means something for the selection it was opened on.
   useEffect(() => setSettingPickerOpen(false), [selection]);
   useEffect(() => {
@@ -1004,7 +1035,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     ...strand.placed.map((p) => {
       const v = p.material?.visual;
       if (!v) return 0;
-      if (p.setting?.visual) return settingBoxPx(p.setting.visual, 1).L;
+      if (p.setting?.visual) return settingBoxPx(p.setting.visual, 1, v).L;
       return isPendant(v) ? (hasBail(v) ? CABOCHON_BAIL_MM : 0) + v.length_mm : 0;
     })
   );
@@ -1210,10 +1241,13 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               {m.visual?.shape === "chain" && (
                 <span className="text-purple-600"> · adds 1&quot; per click</span>
               )}
-              {pendantAttachment(m.visual) === "placeholder" && (
+              {fitCounts.has(m.id) && (
                 <span className="text-amber-600">
                   {" "}
-                  · needs setting — {fittingBezels(m, materials).length} fit
+                  · undrilled —{" "}
+                  {fitCounts.get(m.id) === 1
+                    ? "1 setting fits"
+                    : `${fitCounts.get(m.id)} settings fit`}
                 </span>
               )}
             </span>
@@ -1468,50 +1502,49 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 <Replace className="w-4 h-4 mr-1" />
                 Replace all…
               </button>
-            {selectedCab && (
-              <div className="relative" ref={settingPickerRef}>
-                <button
-                  onClick={() =>
-                    selectedBead?.setting_id ? setSetting(null) : setSettingPickerOpen((o) => !o)
-                  }
-                  aria-expanded={settingPickerOpen}
-                  className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100"
-                  title={
-                    selectedBead?.setting_id
+            <div className="relative" ref={settingPickerRef}>
+              <button
+                onClick={() =>
+                  selectedBead?.setting_id ? setSetting(null) : setSettingPickerOpen((o) => !o)
+                }
+                disabled={!selectedCab}
+                aria-expanded={settingPickerOpen}
+                className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={
+                  !selectedCab
+                    ? "Select a single cabochon on the strand to set it"
+                    : selectedBead?.setting_id
                       ? "Take this stone out of its bezel setting"
                       : "Set this stone into a bezel setting from your inventory"
-                  }
-                >
-                  <Gem className="w-4 h-4 mr-1" />
-                  {selectedBead?.setting_id ? "Unset" : "Set into…"}
-                </button>
-                {settingPickerOpen && !selectedBead?.setting_id && (
-                  <div className="absolute left-0 top-full mt-1 z-20 w-72 max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg p-1">
-                    {fittingSettings.length === 0 ? (
-                      <p className="px-3 py-2 text-sm text-gray-500">
-                        No settings in inventory fit this stone
-                      </p>
-                    ) : (
-                      fittingSettings.map((s) => (
-                        <button
-                          key={s.id}
-                          onClick={() => setSetting(s.id)}
-                          className="w-full flex items-center gap-3 px-2 py-1.5 rounded-md hover:bg-purple-50 text-left"
-                        >
-                          <span className="w-9 flex justify-center shrink-0">
-                            <BeadSwatch visual={s.visual} size={28} seed={s.id} />
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block text-sm text-gray-900 truncate">{s.name}</span>
-                            <span className="block text-xs text-gray-500">{s.quantity} in stock</span>
-                          </span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                }
+              >
+                <Gem className="w-4 h-4 mr-1" />
+                {selectedCab && selectedBead?.setting_id ? "Unset" : "Set into…"}
+              </button>
+              {settingPickerOpen && selectedCab && !selectedBead?.setting_id && (
+                <div className="absolute left-0 top-full mt-1 z-20 w-72 max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg p-1">
+                  {settingChoices.fitting.length === 0 ? (
+                    <p className="px-3 py-2 text-sm text-gray-500">{noSettingsNote}</p>
+                  ) : (
+                    settingChoices.fitting.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => setSetting(s.id)}
+                        className="w-full flex items-center gap-3 px-2 py-1.5 rounded-md hover:bg-purple-50 text-left"
+                      >
+                        <span className="w-9 flex justify-center shrink-0">
+                          <BeadSwatch visual={s.visual} size={28} seed={s.id} />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-sm text-gray-900 truncate">{s.name}</span>
+                          <span className="block text-xs text-gray-500">{s.quantity} in stock</span>
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
             </div>
             <span className="ml-auto text-xs text-gray-500">
               {replacing ? "Esc to cancel replace" : "Esc to deselect"}
@@ -1577,7 +1610,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 // (drape) or radially outward (bracelet). A set stone's box
                 // is its bezel's frame; it hangs from the bezel's loop.
                 const box = setting
-                  ? settingBoxPx(setting, pxPerMm)
+                  ? settingBoxPx(setting, pxPerMm, visual)
                   : { L: visual.length_mm * pxPerMm, W: visual.width_mm * pxPerMm };
                 const stoneW = box.W;
                 const stoneL = box.L;
