@@ -42,7 +42,7 @@ create policy "Own designs"
   with check (user_id = auth.uid());
 
 -- Receipts bucket: signed-in users only (uploads stay transient; paths are
--- unguessable UUIDs — per-owner path scoping is a possible follow-up).
+-- unguessable UUIDs — per-owner path scoping landed in 0011, GRA-18).
 drop policy if exists "Anon can upload receipts" on storage.objects;
 drop policy if exists "Users can upload receipts" on storage.objects;
 create policy "Users can upload receipts"

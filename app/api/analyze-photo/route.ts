@@ -4,7 +4,8 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { BeadVisualSchema } from "@/lib/bead-visual";
 import { getSupabaseConfig } from "@/lib/supabase-config";
-import { isAuthorized } from "@/lib/api-token";
+import { authorizedUser, isOwnUpload } from "@/lib/api-token";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 60;
 
@@ -15,12 +16,13 @@ export const maxDuration = 60;
 // the returned visual to the DB itself.
 
 const BUCKET = "receipts";
-const STORAGE_PATH_RE = /^[0-9a-f-]{36}\.(jpe?g|png|gif|webp)$/i;
+// Path ownership and shape are checked with isOwnUpload() in POST.
+const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp"] as const;
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
 type AcceptedImageType = (typeof ACCEPTED_IMAGE_TYPES)[number];
 
 const RequestSchema = z.object({
-  path: z.string().regex(STORAGE_PATH_RE),
+  path: z.string().min(1).max(200),
   mediaType: z.enum(ACCEPTED_IMAGE_TYPES),
   material_name: z.string().min(1).max(300),
 });
@@ -37,8 +39,9 @@ const promptFor = (name: string) => `This photo shows the jewelry material named
 - For cabochons and bezel settings, set 'outline' to the face (or recess) shape you see: 'oval' (also round), 'rectangle' (also square/cushion), 'triangle', 'pentagon', 'hexagon', 'teardrop', 'marquise', 'stalactite' (lumpy slice with concentric rings), 'trapiche' (six radial spokes), or 'freeform'. Null for every other shape.`;
 
 // Storage calls run with the caller's session token: the receipts bucket is
-// authenticated-only since the 0006 lockdown, and the route holds no service
-// key. isAuthorized() has already validated the header by the time this runs.
+// authenticated-only since the 0006 lockdown and owner-scoped since 0011, and
+// the route holds no service key. authorizedUser() has already validated the
+// header (and isOwnUpload() the path against its id) by the time this runs.
 function storageConfig(authHeader: string | null) {
   const config = getSupabaseConfig();
   if (!config || !authHeader) return null;
@@ -49,9 +52,12 @@ function storageConfig(authHeader: string | null) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await isAuthorized(request))) {
+  const user = await authorizedUser(request);
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
+  const limited = await enforceRateLimit(request, "analyze-photo");
+  if (limited) return limited;
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
       { error: "ANTHROPIC_API_KEY is not configured on the server." },
@@ -67,6 +73,9 @@ export async function POST(request: NextRequest) {
       { error: "Body must include a storage path, an image mediaType, and material_name." },
       { status: 400 }
     );
+  }
+  if (!isOwnUpload(body.path, user.id, IMAGE_EXTENSIONS)) {
+    return NextResponse.json({ error: "Invalid storage path." }, { status: 400 });
   }
 
   const storage = storageConfig(request.headers.get("authorization"));

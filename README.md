@@ -54,6 +54,8 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 > **`0006_user_scoping_lockdown.sql` comes last, after everything else works**: sign in once, backfill any legacy rows to your user id (instructions in the file), then run it — it removes anonymous access. Its `SET NOT NULL` fails loudly if legacy rows were missed, so running it early errors rather than stranding data.
 >
 > Full first-time order: all migrations except `0006` → env vars → Google sign-in config → run the app and sign in → backfill → `0006`.
+>
+> On an **existing** deployment, apply `0011_receipts_owner_scoping.sql` only *after* deploying the code that uploads to per-user folders (the file's header explains why); `0012_api_usage.sql` can go in before or after.
 
 ### Google sign-in
 
@@ -88,7 +90,9 @@ Import the repo at [vercel.com/new](https://vercel.com/new) (or `vercel` from th
 
 After the first deploy, set the **Site URL** (and redirect URL) in Supabase → **Authentication → URL Configuration** to the assigned Vercel URL — Google sign-in silently fails in production until this matches.
 
-**Note:** receipt files are uploaded directly to a private Supabase Storage bucket (`receipts`) rather than through the API route, sidestepping Vercel's ~4.5MB request-body cap. The route downloads the file server-side, processes it, and deletes it. Files up to 20MB are supported; large photos are downscaled client-side.
+**Note:** receipt files are uploaded directly to a private Supabase Storage bucket (`receipts`) rather than through the API route, sidestepping Vercel's ~4.5MB request-body cap. Uploads land under the signed-in user's own folder (`{user_id}/{uuid}.ext`), which the bucket policies (migration `0011`) and the route both enforce. The route downloads the file server-side, processes it, and deletes it. Files up to 20MB are supported; large photos are downscaled client-side.
+
+The AI routes are rate-limited per user (60 calls/hour across all AI features, 20/hour for receipt processing) through the `record_ai_call` function from migration `0012`. If that migration isn't applied yet the routes log the failure and allow the call, so it can be added at any time.
 
 ## Architecture
 
@@ -112,13 +116,15 @@ lib/
   bead-visual.ts               # visual spec schema + color/size helpers
   visuals.ts                   # shared name→visual API call (board + inventory)
   strand-layout.ts             # as-worn geometry (bracelet circle / necklace drape)
-  photo-upload.ts              # shared downscale + transient-upload helpers
+  photo-upload.ts              # shared downscale + transient-upload helpers ({user_id}/{uuid} paths)
+  api-token.ts                 # server-side JWT check (authorizedUser / isAuthorized)
+  rate-limit.ts                # per-user hourly caps on the AI routes (fails open)
   useHistory.ts                # bounded undo/redo snapshot stacks (design board)
   mirror.ts                    # mirror-mode index math: reflected insert/delete, make symmetric
   designs.ts / materials.ts    # Supabase CRUD (+ provenance-aware import matching)
   orders.ts                    # order upsert, receipt archive upload + signed URLs
   settings.ts                  # per-user pricing/listing settings (user_settings table)
-supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance)
+supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance, api usage)
 ```
 
 Visual and listing generation use the Anthropic structured outputs API (`client.messages.parse` with Zod schemas); receipt extraction uses the same Zod-derived schema but streams the response (`client.messages.stream()`), so long receipts aren't capped by the non-streaming token budget. Results arrive as validated JSON either way.

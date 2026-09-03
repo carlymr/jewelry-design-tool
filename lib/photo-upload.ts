@@ -1,3 +1,4 @@
+import { getUserId } from "./auth";
 import { getSupabase } from "./supabase";
 
 // Files go straight to Supabase Storage (bypassing Vercel's ~4.5MB request
@@ -60,10 +61,15 @@ export function extensionForMediaType(mediaType: string): string {
 
 /** Upload a transient blob for AI processing; returns the storage path to
  * hand the API route. Lives in the receipts bucket — same lifecycle: the
- * route deletes the file whether or not processing succeeds. */
+ * route deletes the file whether or not processing succeeds. Paths are
+ * `{user_id}/{uuid}.{ext}`: the bucket's policies (migration 0011) and the
+ * routes both check the folder against the caller, so one user can't touch
+ * another's in-flight upload. */
 export async function uploadTransient(blob: Blob, mediaType: string): Promise<string> {
   const ext = extensionForMediaType(mediaType);
-  const path = `${crypto.randomUUID()}.${ext}`;
+  const userId = await getUserId();
+  if (!userId) throw new Error("Sign in to upload files.");
+  const path = `${userId}/${crypto.randomUUID()}.${ext}`;
   const { error } = await getSupabase()
     .storage.from("receipts")
     .upload(path, blob, { contentType: mediaType });

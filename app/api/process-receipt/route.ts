@@ -4,7 +4,8 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { BeadVisualSchema } from "@/lib/bead-visual";
 import { getSupabaseConfig } from "@/lib/supabase-config";
-import { isAuthorized } from "@/lib/api-token";
+import { authorizedUser, isOwnUpload } from "@/lib/api-token";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { CATEGORIES } from "@/lib/types";
 
 // Long receipts can take a few minutes with adaptive thinking; keep this above
@@ -14,8 +15,8 @@ export const maxDuration = 300;
 
 const RECEIPTS_BUCKET = "receipts";
 
-// Matches exactly what the client generates: crypto.randomUUID() + extension.
-const STORAGE_PATH_RE = /^[0-9a-f-]{36}\.(pdf|jpe?g|png|gif|webp)$/i;
+// Path ownership and shape are checked with isOwnUpload() in POST.
+const RECEIPT_EXTENSIONS = ["pdf", "jpg", "jpeg", "png", "gif", "webp"] as const;
 
 // The route talks to the Storage REST API directly instead of supabase-js:
 // it only needs download + delete, and supabase-js requires a native
@@ -23,8 +24,9 @@ const STORAGE_PATH_RE = /^[0-9a-f-]{36}\.(pdf|jpe?g|png|gif|webp)$/i;
 // (this project targets Node 24 — see .nvmrc — but keep the route free of
 // supabase-js anyway).
 // Storage calls run with the caller's session token: the receipts bucket is
-// authenticated-only since the 0006 lockdown, and the route holds no service
-// key. isAuthorized() has already validated the header by the time this runs.
+// authenticated-only since the 0006 lockdown and owner-scoped since 0011, and
+// the route holds no service key. authorizedUser() has already validated the
+// header (and isOwnUpload() the path against its id) by the time this runs.
 function storageConfig(authHeader: string | null) {
   const config = getSupabaseConfig();
   if (!config || !authHeader) return null;
@@ -203,9 +205,12 @@ ESTIMATING UNITS:
 Ignore lines with no physical goods — shipping, taxes, store credit, coupons. Do NOT drop tools or finished-jewelry lines; categorize those per NON-SUPPLY LINES above. If the document doesn't appear to be a receipt or contains no jewelry materials, return an empty items array and explain in notes.`;
 
 export async function POST(request: NextRequest) {
-  if (!(await isAuthorized(request))) {
+  const user = await authorizedUser(request);
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
+  const limited = await enforceRateLimit(request, "process-receipt");
+  if (limited) return limited;
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
       { error: "ANTHROPIC_API_KEY is not configured on the server." },
@@ -227,7 +232,7 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
-  if (!STORAGE_PATH_RE.test(path)) {
+  if (typeof path !== "string" || !isOwnUpload(path, user.id, RECEIPT_EXTENSIONS)) {
     return NextResponse.json({ error: "Invalid storage path." }, { status: 400 });
   }
 
