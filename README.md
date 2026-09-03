@@ -17,7 +17,8 @@ Built with Next.js, Supabase, and the Anthropic API; deploys to Vercel.
 - **Selection bar**: while beads are selected, a bar above the strand shows what's selected (count and material) with *Remove* and *Replace all…*; the whole-strand tools — undo/redo, Repeat/Fill, Mirror/Make symmetric, Clear — sit in grouped rows under the strand with the live totals, and a **?** button beside the hint line lists every keyboard shortcut
 - **Mirror mode**: toggle *Mirror* (or press M) to build a necklace outward from its pendant — every add, delete, Repeat and Fill is reflected around the strand's center so it stays symmetric, with a dashed axis and a ghost caret showing where the reflection lands; *Make symmetric* folds the strand at the cursor in one step — select the pendant to make it the center, or fold at the caret — and *◀ Keep left* / *Keep right ▶* picks which side is mirrored onto the other. Drag isn't mirrored, and the toggle itself isn't saved with the design — it resets when you load or start one
 - **Beyond beads**: chain (placed by the inch), lobster and toggle clasps, jump rings, connectors, bezel settings, pinch bails, and cabochons — each renders with its own treatment, and a cabochon's varies with how it's drilled (undrilled or unrecorded → placeholder bail flagged "needs setting", front-to-back → pinch bail, top-drilled → hangs from the wire, center-drilled → strung inline). Cabochons and bezel recesses draw to their face shape — oval, rectangle, triangle, pentagon, hexagon, teardrop, marquise, stalactite or trapiche slice, freeform — set from the receipt or the inventory edit row
-- **Live totals**: length vs. target, material cost, and "need X, have Y" warnings when a design overdraws inventory
+- **Generic findings**: a *Generic* tab in the palette lists a built-in catalog of the components nobody counts — jump rings (4–10mm in silver, gold, gunmetal, antique bronze, copper), lobster and toggle clasps, crimp beads/covers/tubes, spacer balls, wire guardians — with ready-made artwork and rough costs; placing one creates a matching inventory row on the fly (once per account), so pricing and saved designs work as usual, but no stock is tracked for it
+- **Live totals**: length vs. target, material cost, and "need X, have Y" warnings when a design overdraws inventory (generics are exempt)
 - **Saved designs** with name and target length, persisted to Supabase
 
 ### Element visuals
@@ -31,7 +32,7 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 
 ### Inventory
 
-- Searchable, sortable, paginated table with bead swatches, inline stock editing, and **color family / size filters**
+- Searchable, sortable, paginated table with bead swatches, inline stock editing, and **color family / size filters**; generic findings placed from the design board show up here with a "generic" badge and no stock count (cost stays editable)
 - **Provenance**: every imported material remembers its order (platform, seller, order number, date), the listing title and variation text exactly as the receipt showed them, and the price paid — with a link to the archived receipt. Re-uploading a receipt updates the same rows instead of duplicating them
 - **Works on a phone**: rows become cards below tablet width, with a sort dropdown standing in for the column headers
 - **Full row editing**: fix a material's name, category, cost, or unit after import (sellers mislabel stones); renaming offers to regenerate the visual from the corrected name
@@ -115,6 +116,7 @@ components/
   PricingStudio.tsx            # design costs, extras, labor/markup, listing
 lib/
   bead-visual.ts               # visual spec schema + color/size helpers
+  generic-catalog.ts           # built-in findings catalog (jump rings, crimps, clasps…) seeded into materials on first use
   visuals.ts                   # shared name→visual API call (board + inventory)
   strand-layout.ts             # as-worn geometry (bracelet circle / necklace drape)
   photo-upload.ts              # shared downscale + transient-upload helpers ({user_id}/{uuid} paths)
@@ -125,7 +127,7 @@ lib/
   designs.ts / materials.ts    # Supabase CRUD (+ provenance-aware import matching)
   orders.ts                    # order upsert, receipt archive upload + signed URLs
   settings.ts                  # per-user pricing/listing settings (user_settings table)
-supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance, api usage)
+supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance, api usage, generic_key)
 ```
 
 Visual and listing generation use the Anthropic structured outputs API (`client.messages.parse` with Zod schemas); receipt extraction uses the same Zod-derived schema but streams the response (`client.messages.stream()`), so long receipts aren't capped by the non-streaming token budget. Results arrive as validated JSON either way.

@@ -20,6 +20,7 @@ import MaterialDetailModal, { SourcePanel } from "@/components/MaterialDetail";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
 import { listOrders } from "@/lib/orders";
 import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
+import { isGeneric } from "@/lib/generic-catalog";
 import {
   CATEGORIES,
   presentCategories,
@@ -431,6 +432,14 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   )}
                 </span>
                 <span className="min-w-0 wrap-break-word leading-snug">{material.name}</span>
+                {isGeneric(material) && (
+                  <span
+                    className="shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-purple-100 text-purple-700"
+                    title="Generic finding from the built-in catalog — no stock tracked"
+                  >
+                    generic
+                  </span>
+                )}
               </div>
               <div className="col-span-4 md:col-span-2 text-xs md:text-sm text-gray-600">
                 {material.category}
@@ -444,6 +453,11 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
               </div>
               <div className="col-span-4 md:col-span-2 flex items-center gap-1">
                 <span className="md:hidden text-xs text-gray-500">Stock</span>
+                {isGeneric(material) ? (
+                  <span className="text-sm text-gray-400" title="Generics aren't stock-tracked">
+                    —
+                  </span>
+                ) : (
                 <input
                   // Remount when quantity changes elsewhere (row editing) — an
                   // uncontrolled input would otherwise show, and write back, a
@@ -459,6 +473,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   }}
                   className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500"
                 />
+                )}
               </div>
               <div className="col-span-12 md:col-span-2 flex justify-end md:justify-center items-center gap-1">
                 {(material.source || material.order_id) && (

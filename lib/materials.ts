@@ -1,6 +1,7 @@
 import { getSupabase } from "./supabase";
 import { getUserId } from "./auth";
 import type { Material, MaterialSource, NewMaterial } from "./types";
+import type { GenericEntry } from "./generic-catalog";
 
 export async function listMaterials(): Promise<Material[]> {
   const { data, error } = await getSupabase()
@@ -40,6 +41,51 @@ export async function updateMaterial(
 export async function deleteMaterial(id: string): Promise<void> {
   const { error } = await getSupabase().from("materials").delete().eq("id", id);
   if (error) throw new Error(error.message);
+}
+
+/** The caller's row for a generic catalog entry, seeding it on first use
+ * (GRA-17). RLS scopes the lookup to the caller, and the partial unique
+ * index on (user_id, generic_key) means a race between two placements ends
+ * in one insert failing — that loser just re-reads the winner's row. */
+export async function ensureGenericMaterial(entry: GenericEntry): Promise<Material> {
+  const db = getSupabase();
+  const existing = await db
+    .from("materials")
+    .select("*")
+    .eq("generic_key", entry.key)
+    .maybeSingle();
+  if (existing.error) throw new Error(existing.error.message);
+  if (existing.data) return existing.data;
+
+  const [inserted] = await addMaterials([
+    {
+      name: entry.name,
+      category: entry.category,
+      unit_cost: entry.unit_cost,
+      unit_type: entry.unit_type,
+      quantity: 0,
+      supplier: "",
+      visual: entry.visual,
+      generic_key: entry.key,
+    },
+  ]).then(
+    (rows) => rows,
+    async (e: unknown) => {
+      // 23505 = unique_violation: someone (a double-click) got there first.
+      if (e instanceof Error && /duplicate key|23505/.test(e.message)) {
+        const again = await db
+          .from("materials")
+          .select("*")
+          .eq("generic_key", entry.key)
+          .maybeSingle();
+        if (again.error) throw new Error(again.error.message);
+        if (again.data) return [again.data as Material];
+      }
+      throw e;
+    }
+  );
+  if (!inserted) throw new Error("Could not create the generic material");
+  return inserted;
 }
 
 type Candidate = Pick<Material, "id" | "name" | "quantity" | "order_id" | "visual" | "source">;
