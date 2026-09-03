@@ -38,9 +38,13 @@ begin
   if v_user is null then
     raise exception 'record_ai_call requires an authenticated caller';
   end if;
-  if p_route is null or length(p_route) = 0 or length(p_route) > 64 then
-    raise exception 'record_ai_call: invalid route';
+  if p_route not in ('process-receipt', 'generate-visuals', 'generate-listing', 'analyze-photo') then
+    raise exception 'record_ai_call: unknown route %', p_route;
   end if;
+
+  -- Serialize a user's calls so a burst of parallel requests can't each
+  -- read the pre-burst count and all slip under the cap.
+  perform pg_advisory_xact_lock(hashtext(v_user::text));
 
   insert into public.api_usage (user_id, route) values (v_user, p_route);
 

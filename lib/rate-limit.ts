@@ -44,6 +44,9 @@ export async function enforceRateLimit(
   try {
     const res = await fetch(`${config.url}/rest/v1/rpc/record_ai_call`, {
       method: "POST",
+      // A hung RPC must fail open like an erroring one, not eat the route's
+      // time budget; the abort throws into the catch below.
+      signal: AbortSignal.timeout(3000),
       headers: {
         Authorization: auth,
         apikey: config.key,

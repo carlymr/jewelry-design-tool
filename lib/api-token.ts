@@ -23,3 +23,21 @@ export async function authorizedUser(request: Request): Promise<{ id: string } |
 export async function isAuthorized(request: Request): Promise<boolean> {
   return (await authorizedUser(request)) !== null;
 }
+
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const UPLOAD_PATH_RE = new RegExp(`^(${UUID})/${UUID}\\.([a-z0-9]+)$`, "i");
+
+/** Whether `path` is one of the caller's own transient uploads — the
+ * `{user_id}/{uuid}.{ext}` shape lib/photo-upload.ts generates, with an
+ * allowed extension and the folder equal to the caller's id. The bucket
+ * policies (migration 0011) enforce the same ownership; the routes check it
+ * too so a signed-in user can't point them at someone else's in-flight
+ * file. */
+export function isOwnUpload(
+  path: string,
+  userId: string,
+  extensions: readonly string[]
+): boolean {
+  const m = UPLOAD_PATH_RE.exec(path);
+  return m !== null && m[1] === userId && extensions.includes(m[2].toLowerCase());
+}

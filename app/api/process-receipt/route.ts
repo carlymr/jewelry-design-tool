@@ -4,7 +4,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { BeadVisualSchema } from "@/lib/bead-visual";
 import { getSupabaseConfig } from "@/lib/supabase-config";
-import { authorizedUser } from "@/lib/api-token";
+import { authorizedUser, isOwnUpload } from "@/lib/api-token";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { CATEGORIES } from "@/lib/types";
 
@@ -15,12 +15,8 @@ export const maxDuration = 300;
 
 const RECEIPTS_BUCKET = "receipts";
 
-// Matches exactly what the client generates (lib/photo-upload.ts): the
-// caller's user id as the folder, then crypto.randomUUID() + extension. The
-// folder must also equal the caller's id — checked in POST — so a signed-in
-// user can't point the route at another user's in-flight upload.
-const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const STORAGE_PATH_RE = new RegExp(`^${UUID}/${UUID}\\.(pdf|jpe?g|png|gif|webp)$`, "i");
+// Path ownership and shape are checked with isOwnUpload() in POST.
+const RECEIPT_EXTENSIONS = ["pdf", "jpg", "jpeg", "png", "gif", "webp"] as const;
 
 // The route talks to the Storage REST API directly instead of supabase-js:
 // it only needs download + delete, and supabase-js requires a native
@@ -28,8 +24,9 @@ const STORAGE_PATH_RE = new RegExp(`^${UUID}/${UUID}\\.(pdf|jpe?g|png|gif|webp)$
 // (this project targets Node 24 — see .nvmrc — but keep the route free of
 // supabase-js anyway).
 // Storage calls run with the caller's session token: the receipts bucket is
-// authenticated-only since the 0006 lockdown, and the route holds no service
-// key. isAuthorized() has already validated the header by the time this runs.
+// authenticated-only since the 0006 lockdown and owner-scoped since 0011, and
+// the route holds no service key. authorizedUser() has already validated the
+// header (and isOwnUpload() the path against its id) by the time this runs.
 function storageConfig(authHeader: string | null) {
   const config = getSupabaseConfig();
   if (!config || !authHeader) return null;
@@ -235,7 +232,7 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
-  if (!STORAGE_PATH_RE.test(path) || path.split("/")[0] !== user.id) {
+  if (typeof path !== "string" || !isOwnUpload(path, user.id, RECEIPT_EXTENSIONS)) {
     return NextResponse.json({ error: "Invalid storage path." }, { status: 400 });
   }
 
