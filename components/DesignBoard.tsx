@@ -780,6 +780,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       return;
     }
     if (e.key === "Escape") {
+      // With the shortcut popover open, Escape belongs to it (its document
+      // listener closes it); don't also clear the selection underneath.
+      if (showShortcuts) return;
       if (replacing) setReplacingId(null);
       else setSelection(null);
       return;
@@ -1346,10 +1349,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               : "Necklace (as worn) — hangs as it would when worn"}
           </p>
         )}
-        {/* selection bar (GRA-45): actions scoped to the selected run, shown
-            only while something is selected. Whole-strand tools stay in the
-            action row under the strand. */}
-        {range && (
+        {/* selection bar (GRA-45): actions scoped to the selected run. The
+            slot is always rendered so the strand doesn't jump when a click
+            starts a selection; with nothing selected it just says how to.
+            Whole-strand tools stay in the action row under the strand. */}
+        {range ? (
           <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 bg-purple-50/70 border border-purple-200 rounded-lg px-3 py-1.5 text-sm">
             <span className="text-purple-900">
               <strong>{selectionCount}</strong> {selectionCount === 1 ? "bead" : "beads"}{" "}
@@ -1361,8 +1365,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             <div className="flex flex-nowrap items-center gap-1">
               <button
                 onClick={deleteSelection}
-                disabled={!range}
-                className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100"
               >
                 <Trash2 className="w-4 h-4 mr-1" />
                 Remove
@@ -1381,7 +1384,15 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 Replace all…
               </button>
             </div>
-            <span className="ml-auto text-xs text-gray-500">Esc to deselect</span>
+            <span className="ml-auto text-xs text-gray-500">
+              {replacing ? "Esc to cancel replace" : "Esc to deselect"}
+            </span>
+          </div>
+        ) : (
+          <div className="mb-2 flex items-center border border-transparent rounded-lg px-3 py-1.5 text-sm text-gray-400">
+            <span className="py-1.5">
+              Click a bead to select it · shift-click or Shift+arrows for a range
+            </span>
           </div>
         )}
         <div
@@ -1653,7 +1664,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
 
         {/* pattern actions + totals (GRA-45): whole-strand tools in divided
             groups. Each group is flex-nowrap inside a flex-wrap row, so on a
-            narrow screen the row wraps by group rather than mid-group. */}
+            narrow screen the row wraps by group rather than mid-group — except
+            the Mirror group, whose outer div wraps so the asymmetry note can
+            drop under its (non-splitting) buttons. */}
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
           <div className="flex flex-nowrap items-center gap-1">
             <button
@@ -1680,7 +1693,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               onClick={() => repeatSelection(repeatCount)}
               disabled={!range}
               className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Repeat the selected beads"
+              title={range ? "Repeat the selected beads" : "Select beads first"}
             >
               <Repeat className="w-4 h-4 mr-1" />
               Repeat ×
@@ -1818,7 +1831,6 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             {showShortcuts && (
               <div
                 id="board-shortcuts"
-                role="dialog"
                 aria-label="Keyboard shortcuts"
                 className="absolute left-0 top-full z-10 mt-1 w-full max-w-md bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-xs text-gray-700"
               >
