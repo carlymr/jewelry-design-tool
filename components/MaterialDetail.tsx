@@ -16,6 +16,7 @@ import {
   type DrillType,
   type CabOutline,
 } from "@/lib/bead-visual";
+import { isGeneric } from "@/lib/generic-catalog";
 import { CATEGORIES, type Material, type Order } from "@/lib/types";
 
 // The one place a material's details are viewed and edited — opened from the
@@ -118,6 +119,7 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
   const outlineTouched = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const generic = isGeneric(material);
 
   // Provenance: the modal fetches its own order so either surface can open it
   // without carrying an orders map around.
@@ -154,8 +156,9 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
       if (Number.isNaN(unit_cost) || unit_cost < 0) {
         throw new Error("Cost must be a non-negative number");
       }
-      const quantity = parseFloat(form.quantity);
-      if (Number.isNaN(quantity) || quantity < 0) {
+      // Generics carry no stock: leave their placeholder quantity alone.
+      const quantity = generic ? null : parseFloat(form.quantity);
+      if (quantity !== null && (Number.isNaN(quantity) || quantity < 0)) {
         throw new Error("Stock must be a non-negative number");
       }
       await updateMaterial(material.id, {
@@ -163,7 +166,7 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
         category: form.category,
         unit_cost,
         unit_type: form.unit_type.trim() || "piece",
-        quantity,
+        ...(quantity === null ? {} : { quantity }),
       });
       const drill: DrillType | null = form.drill || null;
       const outline: CabOutline | null = form.outline || null;
@@ -337,17 +340,23 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                 className={`${fieldClass} mt-1`}
               />
             </label>
-            <label className="block text-xs text-gray-600">
-              In stock
-              <input
-                type="number"
-                min="0"
-                value={form.quantity}
-                onChange={(e) => setDraft({ quantity: e.target.value })}
-                disabled={busy}
-                className={`${fieldClass} mt-1`}
-              />
-            </label>
+            {generic ? (
+              <p className="text-xs text-gray-500 self-end pb-1.5">
+                Generic finding — no stock tracked.
+              </p>
+            ) : (
+              <label className="block text-xs text-gray-600">
+                In stock
+                <input
+                  type="number"
+                  min="0"
+                  value={form.quantity}
+                  onChange={(e) => setDraft({ quantity: e.target.value })}
+                  disabled={busy}
+                  className={`${fieldClass} mt-1`}
+                />
+              </label>
+            )}
             {material.visual?.shape === "cabochon" && (
               <label className="block text-xs text-gray-600">
                 Drill

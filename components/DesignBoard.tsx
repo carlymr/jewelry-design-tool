@@ -26,7 +26,9 @@ import SearchField from "@/components/SearchField";
 import MaterialDetailModal from "@/components/MaterialDetail";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
-import { updateMaterial } from "@/lib/materials";
+import { ensureGenericMaterial, updateMaterial } from "@/lib/materials";
+import { GENERIC_BY_KIND, isGeneric, type GenericEntry } from "@/lib/generic-catalog";
+import GenericBadge from "@/components/GenericBadge";
 import {
   createDesign,
   deleteDesign,
@@ -212,6 +214,13 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const didDragRef = useRef(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [paletteSearch, setPaletteSearch] = useState("");
+  const [genericSearch, setGenericSearch] = useState("");
+  // Palette shows the inventory; Generic lists the built-in findings catalog
+  // (GRA-17), whose entries become rows on first placement.
+  const [paletteTab, setPaletteTab] = useState<"palette" | "generic">("palette");
+  // Catalog entry currently being seeded into a row, so a double-click
+  // can't insert twice and the entry can show it's working.
+  const [seedingKey, setSeedingKey] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState("");
   const [familyFilter, setFamilyFilter] = useState("");
   const [sizeFilter, setSizeFilter] = useState("");
@@ -454,7 +463,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     const issues: { name: string; need: number; have: number }[] = [];
     for (const [id, need] of strandCounts) {
       const m = materialById.get(id);
-      if (m && need > m.quantity) {
+      // Generics aren't stock-tracked: their quantity is a placeholder 0.
+      if (m && !isGeneric(m) && need > m.quantity) {
         issues.push({ name: m.name, need, have: m.quantity });
       }
     }
@@ -520,6 +530,38 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     mirror
       ? mirroredDelete(beads, start, end)
       : { beads: beads.filter((_, i) => i < start || i > end), insertion: start };
+
+  // Generic rows this user already has, by catalog key: placing one of those
+  // is an ordinary add; anything else is seeded first.
+  const genericRowByKey = useMemo(() => {
+    const map = new Map<string, Material>();
+    for (const m of materials) if (m.generic_key) map.set(m.generic_key, m);
+    return map;
+  }, [materials]);
+
+  const placeGeneric = async (entry: GenericEntry) => {
+    if (seedingKey) return;
+    let id = genericRowByKey.get(entry.key)?.id;
+    if (!id) {
+      setSeedingKey(entry.key);
+      try {
+        id = (await ensureGenericMaterial(entry)).id;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to add the generic component");
+        setSeedingKey(null);
+        return;
+      }
+      try {
+        await onMaterialsChanged();
+      } catch {
+        // The row exists; the board resolves the id on the next refresh.
+      } finally {
+        setSeedingKey(null);
+      }
+    }
+    if (replacing) replaceMaterial(replacing.id, id);
+    else addBead(id);
+  };
 
   const addBead = (materialId: string) => {
     // The first bead on an empty strand becomes the axis itself — mirroring
@@ -1124,7 +1166,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           <span className="min-w-0">
             <span className="block text-sm text-gray-900 leading-snug">{m.name}</span>
             <span className="block text-xs text-gray-500">
-              {m.quantity} in stock · ${m.unit_cost.toFixed(3)}/ea
+              {isGeneric(m) ? <GenericBadge /> : `${m.quantity} in stock`} · ${m.unit_cost.toFixed(3)}/ea
               {m.visual?.shape === "chain" && (
                 <span className="text-purple-600"> · adds 1&quot; per click</span>
               )}
@@ -1865,7 +1907,33 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       {/* Palette */}
       <div className="bg-gray-50 p-4 rounded-lg">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">Palette</h2>
+          <div className="flex items-center gap-1" role="tablist" aria-label="Palette source">
+            {(
+              [
+                ["palette", "Palette"],
+                ["generic", "Generic"],
+              ] as const
+            ).map(([tab, label]) => (
+              <button
+                key={tab}
+                role="tab"
+                aria-selected={paletteTab === tab}
+                onClick={() => setPaletteTab(tab)}
+                className={`text-lg font-semibold px-2 py-0.5 rounded-md ${
+                  paletteTab === tab
+                    ? "text-gray-900"
+                    : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                }`}
+                title={
+                  tab === "generic"
+                    ? "Findings you don't track — jump rings, crimps, spacers, clasps"
+                    : "Your inventory"
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {generating && (
             <span className="text-sm text-purple-600 flex items-center gap-1">
               <RefreshCw className="w-4 h-4 animate-spin" />
@@ -1905,32 +1973,97 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             </div>
           </div>
         )}
-        <div className="mb-3 flex flex-wrap gap-2">
-          <SearchField
-            value={paletteSearch}
-            onChange={setPaletteSearch}
-            className="flex-1 min-w-48"
-          />
-          <BeadFilters
-            categories={categoryOptions}
-            categoryFilter={categoryFilter}
-            onCategoryChange={setCategoryFilter}
-            familyFilter={familyFilter}
-            sizeFilter={sizeFilter}
-            onFamilyChange={setFamilyFilter}
-            onSizeChange={setSizeFilter}
-          />
-        </div>
-        {palette.length === 0 ? (
-          <p className="text-sm text-gray-500 py-4 text-center">
-            {workingSet.length > 0
-              ? "Nothing else matches — clear the search or filters to see more."
-              : "Nothing to place yet — import a receipt or add materials from the Inventory page."}
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {palette.map(paletteCard)}
+        {paletteTab === "generic" ? (
+          <div className="space-y-4">
+            <p className="text-xs text-gray-500">
+              Findings from the kit drawer — no stock is tracked. Costs are rough estimates;
+              edit them from the Inventory page once placed.
+            </p>
+            <SearchField value={genericSearch} onChange={setGenericSearch} />
+            {GENERIC_BY_KIND.map(({ kind, entries: all }) => {
+              const term = genericSearch.trim().toLowerCase();
+              const entries = term ? all.filter((e) => e.name.toLowerCase().includes(term)) : all;
+              return entries.length === 0 ? null : (
+              <div key={kind}>
+                <h3 className="text-xs font-medium uppercase tracking-wide text-gray-500 mb-1.5">
+                  {kind}
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {entries.map((entry) => {
+                    const row = genericRowByKey.get(entry.key);
+                    const onStrandCount = row ? strandCounts.get(row.id) ?? 0 : 0;
+                    const seeding = seedingKey === entry.key;
+                    return (
+                      <button
+                        key={entry.key}
+                        onClick={() => placeGeneric(entry)}
+                        disabled={seedingKey !== null}
+                        className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-purple-400 text-left group disabled:opacity-60"
+                        title={
+                          replacing
+                            ? `Replace all ${replacingCount} ${replacing.name} with this`
+                            : "Add to strand"
+                        }
+                      >
+                        <span className="w-9 flex justify-center shrink-0">
+                          <BeadSwatch visual={entry.visual} size={32} seed={entry.key} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm text-gray-900 leading-snug">
+                            {entry.name}
+                          </span>
+                          <span className="block text-xs text-gray-500">
+                            ~${entry.unit_cost.toFixed(3)}/ea est.
+                            {onStrandCount > 0 && (
+                              <span className="text-purple-600"> · {onStrandCount} on strand</span>
+                            )}
+                          </span>
+                        </span>
+                        {seeding ? (
+                          <RefreshCw className="w-4 h-4 text-purple-500 animate-spin shrink-0" />
+                        ) : replacing ? (
+                          <Replace className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
+                        ) : (
+                          <Plus className="w-4 h-4 text-purple-500 opacity-0 group-hover:opacity-100 shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              );
+            })}
           </div>
+        ) : (
+          <>
+            <div className="mb-3 flex flex-wrap gap-2">
+              <SearchField
+                value={paletteSearch}
+                onChange={setPaletteSearch}
+                className="flex-1 min-w-48"
+              />
+              <BeadFilters
+                categories={categoryOptions}
+                categoryFilter={categoryFilter}
+                onCategoryChange={setCategoryFilter}
+                familyFilter={familyFilter}
+                sizeFilter={sizeFilter}
+                onFamilyChange={setFamilyFilter}
+                onSizeChange={setSizeFilter}
+              />
+            </div>
+            {palette.length === 0 ? (
+              <p className="text-sm text-gray-500 py-4 text-center">
+                {workingSet.length > 0
+                  ? "Nothing else matches — clear the search or filters to see more."
+                  : "Nothing to place yet — import a receipt or add materials from the Inventory page, or pick a generic finding from the Generic tab."}
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {palette.map(paletteCard)}
+              </div>
+            )}
+          </>
         )}
       </div>
 
