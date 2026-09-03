@@ -16,6 +16,7 @@ import BeadSwatch from "@/components/BeadSwatch";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { listDesigns, updateDesign } from "@/lib/designs";
+import { resolveSetting } from "@/lib/bezel-fit";
 import {
   loadPricingSettings,
   savePricingSettings,
@@ -269,8 +270,13 @@ export default function PricingStudio({ materials }: Props) {
   const beadUsage = useMemo(() => {
     if (!design) return [];
     const counts = new Map<string, number>();
+    const add = (id: string) => counts.set(id, (counts.get(id) ?? 0) + 1);
     for (const b of design.beads ?? []) {
-      counts.set(b.material_id, (counts.get(b.material_id) ?? 0) + 1);
+      add(b.material_id);
+      // A cabochon's bezel setting (GRA-29) is used material like any other;
+      // the shared resolver drops a stale one exactly as the board does.
+      const setting = resolveSetting(b, materialById);
+      if (setting) add(setting.id);
     }
     return Array.from(counts, ([materialId, count]) => {
       const material = materialById.get(materialId) ?? null;
