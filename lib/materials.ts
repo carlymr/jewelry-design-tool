@@ -44,48 +44,42 @@ export async function deleteMaterial(id: string): Promise<void> {
 }
 
 /** The caller's row for a generic catalog entry, seeding it on first use
- * (GRA-17). RLS scopes the lookup to the caller, and the partial unique
- * index on (user_id, generic_key) means a race between two placements ends
- * in one insert failing — that loser just re-reads the winner's row. */
+ * (GRA-17). An upsert on the (user_id, generic_key) unique index — the same
+ * idiom as upsertOrder — so two placements racing each other can't create a
+ * twin: the loser gets no row back and reads the winner's. RLS scopes the
+ * read to the caller. */
 export async function ensureGenericMaterial(entry: GenericEntry): Promise<Material> {
   const db = getSupabase();
+  const user_id = await getUserId();
+  const upserted = await db
+    .from("materials")
+    .upsert(
+      {
+        name: entry.name,
+        category: entry.category,
+        unit_cost: entry.unit_cost,
+        unit_type: entry.unit_type,
+        quantity: 0,
+        supplier: "",
+        visual: entry.visual,
+        generic_key: entry.key,
+        user_id,
+      },
+      { onConflict: "user_id,generic_key", ignoreDuplicates: true }
+    )
+    .select()
+    .maybeSingle();
+  if (upserted.error) throw new Error(upserted.error.message);
+  if (upserted.data) return upserted.data;
+
   const existing = await db
     .from("materials")
     .select("*")
     .eq("generic_key", entry.key)
     .maybeSingle();
   if (existing.error) throw new Error(existing.error.message);
-  if (existing.data) return existing.data;
-
-  const [inserted] = await addMaterials([
-    {
-      name: entry.name,
-      category: entry.category,
-      unit_cost: entry.unit_cost,
-      unit_type: entry.unit_type,
-      quantity: 0,
-      supplier: "",
-      visual: entry.visual,
-      generic_key: entry.key,
-    },
-  ]).then(
-    (rows) => rows,
-    async (e: unknown) => {
-      // 23505 = unique_violation: someone (a double-click) got there first.
-      if (e instanceof Error && /duplicate key|23505/.test(e.message)) {
-        const again = await db
-          .from("materials")
-          .select("*")
-          .eq("generic_key", entry.key)
-          .maybeSingle();
-        if (again.error) throw new Error(again.error.message);
-        if (again.data) return [again.data as Material];
-      }
-      throw e;
-    }
-  );
-  if (!inserted) throw new Error("Could not create the generic material");
-  return inserted;
+  if (!existing.data) throw new Error("Could not create the generic material");
+  return existing.data;
 }
 
 type Candidate = Pick<Material, "id" | "name" | "quantity" | "order_id" | "visual" | "source">;
@@ -109,9 +103,11 @@ export async function matchImportRows(
   const select = "id, name, quantity, order_id, visual, source";
   const names = Array.from(new Set(rows.map((r) => r.name)));
   const [byNameRes, byOrderRes] = await Promise.all([
-    db.from("materials").select(select).in("name", names),
+    // Generic rows (GRA-17) share the naming standard with receipt lines but
+    // are not inventory; a receipt must never top one up.
+    db.from("materials").select(select).in("name", names).is("generic_key", null),
     orderId
-      ? db.from("materials").select(select).eq("order_id", orderId)
+      ? db.from("materials").select(select).eq("order_id", orderId).is("generic_key", null)
       : Promise.resolve({ data: [] as Candidate[], error: null }),
   ]);
   if (byNameRes.error) throw new Error(byNameRes.error.message);

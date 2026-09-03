@@ -28,6 +28,7 @@ import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { ensureGenericMaterial, updateMaterial } from "@/lib/materials";
 import { GENERIC_BY_KIND, isGeneric, type GenericEntry } from "@/lib/generic-catalog";
+import GenericBadge from "@/components/GenericBadge";
 import {
   createDesign,
   deleteDesign,
@@ -213,6 +214,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const didDragRef = useRef(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [paletteSearch, setPaletteSearch] = useState("");
+  const [genericSearch, setGenericSearch] = useState("");
   // Palette shows the inventory; Generic lists the built-in findings catalog
   // (GRA-17), whose entries become rows on first placement.
   const [paletteTab, setPaletteTab] = useState<"palette" | "generic">("palette");
@@ -544,10 +546,15 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       setSeedingKey(entry.key);
       try {
         id = (await ensureGenericMaterial(entry)).id;
-        await onMaterialsChanged();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to add the generic component");
+        setSeedingKey(null);
         return;
+      }
+      try {
+        await onMaterialsChanged();
+      } catch {
+        // The row exists; the board resolves the id on the next refresh.
       } finally {
         setSeedingKey(null);
       }
@@ -1159,7 +1166,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           <span className="min-w-0">
             <span className="block text-sm text-gray-900 leading-snug">{m.name}</span>
             <span className="block text-xs text-gray-500">
-              {isGeneric(m) ? "generic" : `${m.quantity} in stock`} · ${m.unit_cost.toFixed(3)}/ea
+              {isGeneric(m) ? <GenericBadge /> : `${m.quantity} in stock`} · ${m.unit_cost.toFixed(3)}/ea
               {m.visual?.shape === "chain" && (
                 <span className="text-purple-600"> · adds 1&quot; per click</span>
               )}
@@ -1915,7 +1922,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 className={`text-lg font-semibold px-2 py-0.5 rounded-md ${
                   paletteTab === tab
                     ? "text-gray-900"
-                    : "text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                    : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
                 }`}
                 title={
                   tab === "generic"
@@ -1972,7 +1979,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               Findings from the kit drawer — no stock is tracked. Costs are rough estimates;
               edit them from the Inventory page once placed.
             </p>
-            {GENERIC_BY_KIND.map(({ kind, entries }) => (
+            <SearchField value={genericSearch} onChange={setGenericSearch} />
+            {GENERIC_BY_KIND.map(({ kind, entries: all }) => {
+              const term = genericSearch.trim().toLowerCase();
+              const entries = term ? all.filter((e) => e.name.toLowerCase().includes(term)) : all;
+              return entries.length === 0 ? null : (
               <div key={kind}>
                 <h3 className="text-xs font-medium uppercase tracking-wide text-gray-500 mb-1.5">
                   {kind}
@@ -2020,7 +2031,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                   })}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <>

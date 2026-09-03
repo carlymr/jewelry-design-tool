@@ -21,6 +21,7 @@ import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
 import { listOrders } from "@/lib/orders";
 import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
 import { isGeneric } from "@/lib/generic-catalog";
+import GenericBadge from "@/components/GenericBadge";
 import {
   CATEGORIES,
   presentCategories,
@@ -178,7 +179,9 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
     if (materials.length === 0) return;
     const rows = [
       ["Name", "Category", "Cost Per Unit", "Unit", "In Stock"].join(","),
-      ...materials.map((m) =>
+      // Generics aren't inventory and re-seed from the catalog on demand, so
+      // they stay out of the export (and can't come back as ordinary rows).
+      ...materials.filter((m) => !isGeneric(m)).map((m) =>
         [
           csvField(m.name),
           csvField(m.category),
@@ -257,7 +260,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
             disabled={materials.length === 0 || busy}
             className="flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
             aria-label="Export CSV"
-            title="Export CSV"
+            title="Export CSV (generic findings are left out)"
           >
             <Download className="w-4 h-4 sm:mr-1" />
             <span className="hidden sm:inline">Export CSV</span>
@@ -433,12 +436,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 </span>
                 <span className="min-w-0 wrap-break-word leading-snug">{material.name}</span>
                 {isGeneric(material) && (
-                  <span
-                    className="shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-purple-100 text-purple-700"
-                    title="Generic finding from the built-in catalog — no stock tracked"
-                  >
-                    generic
-                  </span>
+                  <GenericBadge />
                 )}
               </div>
               <div className="col-span-4 md:col-span-2 text-xs md:text-sm text-gray-600">

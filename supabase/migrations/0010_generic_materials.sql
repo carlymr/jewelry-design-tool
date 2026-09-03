@@ -9,8 +9,9 @@
 alter table public.materials
   add column if not exists generic_key text;
 
--- One seeded row per user per catalog entry; a concurrent double-click on
--- the same entry fails the second insert instead of creating a twin.
+-- One seeded row per user per catalog entry. Not a partial index: the
+-- client seeds with `on conflict (user_id, generic_key)`, which can only
+-- infer a full unique index; ordinary rows are unaffected because NULL
+-- generic_keys never collide.
 create unique index if not exists materials_user_generic_key_idx
-  on public.materials (user_id, generic_key)
-  where generic_key is not null;
+  on public.materials (user_id, generic_key);

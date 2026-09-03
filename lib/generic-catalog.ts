@@ -135,7 +135,7 @@ export const GENERIC_CATALOG: GenericEntry[] = [
   ),
 ];
 
-export const GENERIC_BY_KEY: ReadonlyMap<string, GenericEntry> = new Map(
+const GENERIC_BY_KEY: ReadonlyMap<string, GenericEntry> = new Map(
   GENERIC_CATALOG.map((e) => [e.key, e])
 );
 
@@ -148,7 +148,7 @@ export const GENERIC_BY_KIND: ReadonlyArray<{ kind: GenericKind; entries: Generi
 
 // Validate at module load so a malformed entry (bad hex, unknown shape, a
 // duplicated key) fails the build's prerender instead of the board at
-// runtime. Static data, ~60 entries — negligible cost.
+// runtime. Static data, a few dozen entries — negligible cost.
 if (GENERIC_BY_KEY.size !== GENERIC_CATALOG.length) {
   throw new Error("generic-catalog: duplicate keys");
 }
