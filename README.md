@@ -14,6 +14,7 @@ Built with Next.js, Supabase, and the Anthropic API; deploys to Vercel.
 - **Pattern building**: click materials from the palette to place them, select a run (click / shift-click), then *Repeat ×N* or *Fill to target* to complete the strand; Backspace removes the last-placed element
 - **Direct manipulation**: drag an element (or a selected run) to rearrange the strand, click between elements to move the insertion point, and use arrow keys to move it precisely (Shift+arrows to select, Esc to clear)
 - **Undo/redo and replace**: Ctrl/⌘Z undoes any strand edit and Ctrl/⌘⇧Z (or Ctrl+Y) redoes it, up to 50 steps; *Replace all…* (on a working-set card, or from a single-material selection) swaps every placement of one material for another while keeping the layout
+- **Mirror mode**: toggle *Mirror* (or press M) to build a necklace outward from its pendant — every add, delete, Repeat and Fill is reflected around the strand's center so it stays symmetric, with a dashed axis and a ghost caret showing where the reflection lands; *Make symmetric* folds the strand at the cursor in one step — select the pendant to make it the center, or fold at the caret — and *keep left* / *keep right* picks which side is mirrored onto the other. Drag isn't mirrored, and the toggle itself isn't saved with the design — it resets when you load or start one
 - **Beyond beads**: chain (placed by the inch), lobster and toggle clasps, jump rings, connectors, bezel settings, pinch bails, and cabochons — each renders with its own treatment, and a cabochon's varies with how it's drilled (undrilled or unrecorded → placeholder bail flagged "needs setting", front-to-back → pinch bail, top-drilled → hangs from the wire, center-drilled → strung inline). Cabochons and bezel recesses draw to their face shape — oval, rectangle, triangle, pentagon, hexagon, teardrop, marquise, stalactite or trapiche slice, freeform — set from the receipt or the inventory edit row
 - **Live totals**: length vs. target, material cost, and "need X, have Y" warnings when a design overdraws inventory
 - **Saved designs** with name and target length, persisted to Supabase
@@ -113,6 +114,7 @@ lib/
   strand-layout.ts             # as-worn geometry (bracelet circle / necklace drape)
   photo-upload.ts              # shared downscale + transient-upload helpers
   useHistory.ts                # bounded undo/redo snapshot stacks (design board)
+  mirror.ts                    # mirror-mode index math: reflected insert/delete, make symmetric
   designs.ts / materials.ts    # Supabase CRUD (+ provenance-aware import matching)
   orders.ts                    # order upsert, receipt archive upload + signed URLs
   settings.ts                  # per-user pricing/listing settings (user_settings table)
