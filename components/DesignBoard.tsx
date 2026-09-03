@@ -18,6 +18,7 @@ import {
   Undo2,
   Redo2,
   FlipHorizontal2,
+  CircleHelp,
 } from "lucide-react";
 import BeadSwatch, { Bead } from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
@@ -172,6 +173,26 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // "line" is the straight editing strand; "curve" shows the piece as worn
   // (circle for bracelet lengths, hanging drape for necklaces).
   const [layout, setLayout] = useState<"line" | "curve">("line");
+  // The `?` shortcut popover beside the hint line (GRA-45). Closes on
+  // Escape or a click outside; it listens on the document and never stops
+  // the event, so the board's own key handling is untouched.
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const shortcutsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showShortcuts) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowShortcuts(false);
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (!shortcutsRef.current?.contains(e.target as Node)) setShowShortcuts(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [showShortcuts]);
   // Non-null while the free-form target-length input is open (raw text so
   // the field can be cleared mid-typing).
   const [customTarget, setCustomTarget] = useState<string | null>(null);
@@ -536,6 +557,10 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     : null;
   const selectionMaterialId =
     selectionMaterialIds?.size === 1 ? [...selectionMaterialIds][0] : null;
+  const selectionMaterial = selectionMaterialId
+    ? materialById.get(selectionMaterialId) ?? null
+    : null;
+  const selectionCount = range ? range.end - range.start + 1 : 0;
 
   const deleteSelection = useCallback(() => {
     if (!range) return;
@@ -755,6 +780,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       return;
     }
     if (e.key === "Escape") {
+      // With the shortcut popover open, Escape belongs to it (its document
+      // listener closes it); don't also clear the selection underneath.
+      if (showShortcuts) return;
       if (replacing) setReplacingId(null);
       else setSelection(null);
       return;
@@ -1321,6 +1349,52 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               : "Necklace (as worn) — hangs as it would when worn"}
           </p>
         )}
+        {/* selection bar (GRA-45): actions scoped to the selected run. The
+            slot is always rendered so the strand doesn't jump when a click
+            starts a selection; with nothing selected it just says how to.
+            Whole-strand tools stay in the action row under the strand. */}
+        {range ? (
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 bg-purple-50/70 border border-purple-200 rounded-lg px-3 py-1.5 text-sm">
+            <span className="text-purple-900">
+              <strong>{selectionCount}</strong> {selectionCount === 1 ? "bead" : "beads"}{" "}
+              selected
+              {selectionMaterial && <> · {selectionMaterial.name}</>}
+            </span>
+            {/* Selection actions — keep them in this one div so a further
+                action (e.g. "Set into…") slots in beside Replace all…. */}
+            <div className="flex flex-nowrap items-center gap-1">
+              <button
+                onClick={deleteSelection}
+                className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100"
+              >
+                <Trash2 className="w-4 h-4 mr-1" />
+                Remove
+              </button>
+              <button
+                onClick={() => selectionMaterialId && setReplacingId(selectionMaterialId)}
+                disabled={!selectionMaterialId}
+                className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={
+                  selectionMaterialId
+                    ? "Swap every bead of the selected material — anywhere on the strand — for one you pick from the palette"
+                    : "Select beads of a single material to replace all of them"
+                }
+              >
+                <Replace className="w-4 h-4 mr-1" />
+                Replace all…
+              </button>
+            </div>
+            <span className="ml-auto text-xs text-gray-500">
+              {replacing ? "Esc to cancel replace" : "Esc to deselect"}
+            </span>
+          </div>
+        ) : (
+          <div className="mb-2 flex items-center border border-transparent rounded-lg px-3 py-1.5 text-sm text-gray-400">
+            <span className="py-1.5">
+              Click a bead to select it · shift-click or Shift+arrows for a range
+            </span>
+          </div>
+        )}
         <div
           className={layout === "curve" ? "overflow-auto max-h-[75vh]" : "overflow-x-auto"}
           tabIndex={0}
@@ -1588,9 +1662,13 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           </svg>
         </div>
 
-        {/* pattern actions + totals */}
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-          <div className="flex items-center gap-1">
+        {/* pattern actions + totals (GRA-45): whole-strand tools in divided
+            groups. Each group is flex-nowrap inside a flex-wrap row, so on a
+            narrow screen the row wraps by group rather than mid-group — except
+            the Mirror group, whose outer div wraps so the asymmetry note can
+            drop under its (non-splitting) buttons. */}
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+          <div className="flex flex-nowrap items-center gap-1">
             <button
               onClick={undo}
               disabled={!history.canUndo}
@@ -1610,12 +1688,12 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               <Redo2 className="w-5 h-5" />
             </button>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex flex-nowrap items-center gap-1 border-l border-gray-200 pl-3">
             <button
               onClick={() => repeatSelection(repeatCount)}
               disabled={!range}
               className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Repeat the selected beads"
+              title={range ? "Repeat the selected beads" : "Select beads first"}
             >
               <Repeat className="w-4 h-4 mr-1" />
               Repeat ×
@@ -1628,84 +1706,68 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
               onChange={(e) =>
                 setRepeatCount(Math.max(1, parseInt(e.target.value) || 1))
               }
-              className="w-14 px-2 py-1.5 border border-gray-300 rounded-md"
+              className="w-12 px-2 py-1.5 border border-gray-300 rounded-md"
             />
+            <button
+              onClick={fillToTarget}
+              disabled={beads.length === 0}
+              className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Repeat the selection (or whole strand) until the target length is reached"
+            >
+              <ArrowRightToLine className="w-4 h-4 mr-1" />
+              Fill to target
+            </button>
           </div>
-          <button
-            onClick={fillToTarget}
-            disabled={beads.length === 0}
-            className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Repeat the selection (or whole strand) until the target length is reached"
-          >
-            <ArrowRightToLine className="w-4 h-4 mr-1" />
-            Fill to target
-          </button>
-          <button
-            onClick={deleteSelection}
-            disabled={!range}
-            className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Trash2 className="w-4 h-4 mr-1" />
-            Remove
-          </button>
-          <button
-            onClick={() => selectionMaterialId && setReplacingId(selectionMaterialId)}
-            disabled={!selectionMaterialId}
-            className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-            title={
-              selectionMaterialId
-                ? "Swap every bead of the selected material — anywhere on the strand — for one you pick from the palette"
-                : "Select beads of a single material to replace all of them"
-            }
-          >
-            <Replace className="w-4 h-4 mr-1" />
-            Replace all…
-          </button>
-          <button
-            onClick={clearAll}
-            disabled={beads.length === 0}
-            className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Eraser className="w-4 h-4 mr-1" />
-            Clear
-          </button>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setMirror((on) => !on)}
-              aria-pressed={mirror}
-              className={`flex items-center px-3 py-1.5 border rounded-md ${
-                mirror
-                  ? "bg-purple-100 border-purple-300 text-purple-700 font-medium"
-                  : "bg-white border-gray-300 hover:bg-gray-100"
-              }`}
-              title="Mirror edits around the strand's center (M) — build to the right of the pendant; drag isn't mirrored"
-            >
-              <FlipHorizontal2 className="w-4 h-4 mr-1" />
-              Mirror
-            </button>
-            <span className="ml-2 text-gray-600">Make symmetric:</span>
-            <button
-              onClick={() => symmetrize("left")}
-              disabled={!folds.left.ok}
-              className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-l-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-              title={foldTitle("left")}
-            >
-              ◀ keep left
-            </button>
-            <button
-              onClick={() => symmetrize("right")}
-              disabled={!folds.right.ok}
-              className="flex items-center px-3 py-1.5 -ml-px bg-white border border-gray-300 rounded-r-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-              title={foldTitle("right")}
-            >
-              keep right ▶
-            </button>
+          {/* The three buttons never split; the asymmetry note may wrap
+              under them when there's no room beside. */}
+          <div className="flex flex-wrap items-center gap-1 border-l border-gray-200 pl-3">
+            <div className="flex flex-nowrap items-center gap-1">
+              <button
+                onClick={() => setMirror((on) => !on)}
+                aria-pressed={mirror}
+                className={`flex items-center px-3 py-1.5 border rounded-md ${
+                  mirror
+                    ? "bg-purple-100 border-purple-300 text-purple-700 font-medium"
+                    : "bg-white border-gray-300 hover:bg-gray-100"
+                }`}
+                title="Mirror edits around the strand's center (M) — build to the right of the pendant; drag isn't mirrored"
+              >
+                <FlipHorizontal2 className="w-4 h-4 mr-1" />
+                Mirror
+              </button>
+              <button
+                onClick={() => symmetrize("left")}
+                disabled={!folds.left.ok}
+                className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-l-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={`Make symmetric — ${foldTitle("left")}`}
+              >
+                ◀ Keep left
+              </button>
+              <button
+                onClick={() => symmetrize("right")}
+                disabled={!folds.right.ok}
+                className="flex items-center px-3 py-1.5 -ml-px bg-white border border-gray-300 rounded-r-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={`Make symmetric — ${foldTitle("right")}`}
+              >
+                Keep right ▶
+              </button>
+            </div>
             {mirror && !symmetric && (
               <span className="text-xs text-amber-700">Strand isn&apos;t symmetric</span>
             )}
           </div>
+          <div className="flex flex-nowrap items-center border-l border-gray-200 pl-3">
+            <button
+              onClick={clearAll}
+              disabled={beads.length === 0}
+              className="flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Eraser className="w-4 h-4 mr-1" />
+              Clear
+            </button>
+          </div>
 
-          <div className="ml-auto flex items-center gap-4 text-gray-700">
+          <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-gray-700">
             <span>
               <strong>{beads.length}</strong> beads
             </span>
@@ -1736,23 +1798,68 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           </div>
         )}
 
-        <p className="mt-2 text-sm text-gray-500">
-          {beads.length === 0 ? (
-            <>
-              Click a bead in the palette to start the strand. Click a placed
-              bead to select it (shift-click for a range), then Repeat or Fill
-              to build a pattern.
-            </>
-          ) : (
-            <>
-              Drag beads to rearrange · click between beads or use arrow keys to
-              move the insertion point (Shift+arrows select, Esc clears) ·
-              Backspace removes the last-placed bead{mirror && " and its mirror"} · M toggles
-              mirror mode{mirror && " (drag isn't mirrored)"} · Ctrl+Z / ⌘Z undoes,
-              Ctrl+Shift+Z redoes.
-            </>
-          )}
-        </p>
+        <div className="relative mt-2 flex flex-wrap items-center gap-x-1 gap-y-1 text-sm text-gray-500">
+          <p>
+            {beads.length === 0 ? (
+              <>
+                Click a bead in the palette to start the strand. Click a placed
+                bead to select it (shift-click for a range), then Repeat or Fill
+                to build a pattern.
+              </>
+            ) : (
+              <>
+                Click between beads to move the insertion point · Backspace
+                removes the last-placed bead · Ctrl+Z / ⌘Z undoes
+              </>
+            )}
+          </p>
+          <div ref={shortcutsRef} className="contents">
+            <button
+              type="button"
+              onClick={() => setShowShortcuts((on) => !on)}
+              // Don't take focus: the board keeps it, so shortcuts still work
+              // while the popover is open.
+              onMouseDown={(e) => e.preventDefault()}
+              aria-expanded={showShortcuts}
+              aria-controls="board-shortcuts"
+              aria-label="All keyboard shortcuts"
+              title="All keyboard shortcuts"
+              className="p-1 rounded text-gray-400 hover:text-gray-700"
+            >
+              <CircleHelp className="w-4 h-4" />
+            </button>
+            {showShortcuts && (
+              <div
+                id="board-shortcuts"
+                aria-label="Keyboard shortcuts"
+                className="absolute left-0 top-full z-10 mt-1 w-full max-w-md bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-xs text-gray-700"
+              >
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 items-baseline">
+                  <dt className="whitespace-nowrap"><Kbd>←</Kbd> <Kbd>→</Kbd></dt>
+                  <dd>Move the insertion point</dd>
+                  <dt className="whitespace-nowrap"><Kbd>Shift</Kbd> + <Kbd>←</Kbd> <Kbd>→</Kbd></dt>
+                  <dd>Select beads from the insertion point (extends a selection)</dd>
+                  <dt className="whitespace-nowrap"><Kbd>Esc</Kbd></dt>
+                  <dd>Clear the selection, or cancel Replace all</dd>
+                  <dt className="whitespace-nowrap"><Kbd>Backspace</Kbd> <Kbd>Delete</Kbd></dt>
+                  <dd>Remove the selection, or the last-placed bead</dd>
+                  <dt className="whitespace-nowrap"><Kbd>Ctrl</Kbd>+<Kbd>Z</Kbd> / <Kbd>⌘Z</Kbd></dt>
+                  <dd>Undo</dd>
+                  <dt className="whitespace-nowrap"><Kbd>Ctrl</Kbd>+<Kbd>Shift</Kbd>+<Kbd>Z</Kbd> / <Kbd>Ctrl</Kbd>+<Kbd>Y</Kbd></dt>
+                  <dd>Redo</dd>
+                  <dt className="whitespace-nowrap"><Kbd>M</Kbd></dt>
+                  <dd>Toggle mirror mode</dd>
+                  <dt className="whitespace-nowrap">Drag</dt>
+                  <dd>Rearrange a bead or a selected run</dd>
+                </dl>
+                <p className="mt-2 text-gray-500">
+                  In mirror mode, Backspace removes the bead and its mirror, and
+                  drag isn&apos;t mirrored.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Palette */}
@@ -1836,5 +1943,14 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
         />
       )}
     </div>
+  );
+}
+
+// Key cap for the shortcut popover.
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="px-1 py-0.5 rounded border border-gray-300 bg-gray-50 font-mono text-[11px] text-gray-800">
+      {children}
+    </kbd>
   );
 }
