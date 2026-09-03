@@ -4,7 +4,8 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { BeadVisualSchema } from "@/lib/bead-visual";
 import { getSupabaseConfig } from "@/lib/supabase-config";
-import { isAuthorized } from "@/lib/api-token";
+import { authorizedUser } from "@/lib/api-token";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 60;
 
@@ -15,7 +16,10 @@ export const maxDuration = 60;
 // the returned visual to the DB itself.
 
 const BUCKET = "receipts";
-const STORAGE_PATH_RE = /^[0-9a-f-]{36}\.(jpe?g|png|gif|webp)$/i;
+// `{user_id}/{uuid}.{ext}` as lib/photo-upload.ts generates it; POST also
+// checks that the folder is the caller's own id.
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const STORAGE_PATH_RE = new RegExp(`^${UUID}/${UUID}\\.(jpe?g|png|gif|webp)$`, "i");
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
 type AcceptedImageType = (typeof ACCEPTED_IMAGE_TYPES)[number];
 
@@ -49,9 +53,12 @@ function storageConfig(authHeader: string | null) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await isAuthorized(request))) {
+  const user = await authorizedUser(request);
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
+  const limited = await enforceRateLimit(request, "analyze-photo");
+  if (limited) return limited;
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
       { error: "ANTHROPIC_API_KEY is not configured on the server." },
@@ -67,6 +74,9 @@ export async function POST(request: NextRequest) {
       { error: "Body must include a storage path, an image mediaType, and material_name." },
       { status: 400 }
     );
+  }
+  if (body.path.split("/")[0] !== user.id) {
+    return NextResponse.json({ error: "Invalid storage path." }, { status: 400 });
   }
 
   const storage = storageConfig(request.headers.get("authorization"));
