@@ -58,6 +58,9 @@ export interface Material {
   visual: BeadVisual | null;
   order_id: string | null;
   source: MaterialSource | null;
+  /** Catalog key when this row was seeded from lib/generic-catalog.ts (GRA-17);
+   * null for an ordinary inventory row. Generics carry no stock. */
+  generic_key: string | null;
   /** Owner; null only on legacy rows created before auth (see migration 0005). */
   user_id: string | null;
   created_at: string;
@@ -66,11 +69,12 @@ export interface Material {
 
 export type NewMaterial = Omit<
   Material,
-  "id" | "created_at" | "updated_at" | "visual" | "user_id" | "order_id" | "source"
+  "id" | "created_at" | "updated_at" | "visual" | "user_id" | "order_id" | "source" | "generic_key"
 > & {
   visual?: BeadVisual | null;
   order_id?: string | null;
   source?: MaterialSource | null;
+  generic_key?: string | null;
 };
 
 /** One line item extracted from a receipt by the API route. */
