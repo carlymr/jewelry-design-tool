@@ -1,5 +1,7 @@
 "use client";
 
+import GenericBadge from "@/components/GenericBadge";
+import { isGeneric } from "@/lib/generic-catalog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Copy,
@@ -944,7 +946,7 @@ export default function PricingStudio({ materials }: Props) {
                           </span>
                         </span>
                         <span className="text-xs text-gray-500 shrink-0">
-                          {m.quantity} in stock
+                          {isGeneric(m) ? <GenericBadge /> : `${m.quantity} in stock`}
                         </span>
                       </button>
                     ))}

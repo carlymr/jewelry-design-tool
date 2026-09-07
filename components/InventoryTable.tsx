@@ -20,6 +20,8 @@ import MaterialDetailModal, { SourcePanel } from "@/components/MaterialDetail";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
 import { listOrders } from "@/lib/orders";
 import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
+import { isGeneric } from "@/lib/generic-catalog";
+import GenericBadge from "@/components/GenericBadge";
 import {
   CATEGORIES,
   presentCategories,
@@ -177,7 +179,9 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
     if (materials.length === 0) return;
     const rows = [
       ["Name", "Category", "Cost Per Unit", "Unit", "In Stock"].join(","),
-      ...materials.map((m) =>
+      // Generics aren't inventory and re-seed from the catalog on demand, so
+      // they stay out of the export (and can't come back as ordinary rows).
+      ...materials.filter((m) => !isGeneric(m)).map((m) =>
         [
           csvField(m.name),
           csvField(m.category),
@@ -256,7 +260,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
             disabled={materials.length === 0 || busy}
             className="flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
             aria-label="Export CSV"
-            title="Export CSV"
+            title="Export CSV (generic findings are left out)"
           >
             <Download className="w-4 h-4 sm:mr-1" />
             <span className="hidden sm:inline">Export CSV</span>
@@ -431,6 +435,9 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   )}
                 </span>
                 <span className="min-w-0 wrap-break-word leading-snug">{material.name}</span>
+                {isGeneric(material) && (
+                  <GenericBadge />
+                )}
               </div>
               <div className="col-span-4 md:col-span-2 text-xs md:text-sm text-gray-600">
                 {material.category}
@@ -444,6 +451,11 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
               </div>
               <div className="col-span-4 md:col-span-2 flex items-center gap-1">
                 <span className="md:hidden text-xs text-gray-500">Stock</span>
+                {isGeneric(material) ? (
+                  <span className="text-sm text-gray-400" title="Generics aren't stock-tracked">
+                    —
+                  </span>
+                ) : (
                 <input
                   // Remount when quantity changes elsewhere (row editing) — an
                   // uncontrolled input would otherwise show, and write back, a
@@ -459,6 +471,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   }}
                   className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500"
                 />
+                )}
               </div>
               <div className="col-span-12 md:col-span-2 flex justify-end md:justify-center items-center gap-1">
                 {(material.source || material.order_id) && (
