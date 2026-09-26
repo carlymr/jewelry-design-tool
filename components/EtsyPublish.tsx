@@ -6,7 +6,6 @@ import {
   WHEN_MADE_OPTIONS,
   validWhenMade,
   disconnectEtsy,
-  fetchEtsyShop,
   publishToEtsy,
   startEtsyConnect,
   type EtsyPublishResult,
@@ -16,12 +15,122 @@ import type { PricingSettings } from "@/lib/settings";
 import { NECKLACE_MIN_MM } from "@/lib/strand-layout";
 import type { Design, DesignListing } from "@/lib/types";
 
-// Publish the current listing to the connected Etsy shop as a draft (GRA-37).
+// Etsy on the pricing page (GRA-37). EtsyConnectionBar sits at the top of
+// the page (connect / disconnect, always visible); EtsyPublish lives on the
+// listing card and publishes the current listing to the connected shop as a
+// draft. PricingStudio loads the shop info once and passes it to both.
 // Shop-specific choices (category, shipping/processing profile, return
 // policy, when made) are remembered in the account's pricing settings,
 // with the category kept per piece type.
 
+type ConnectedShop = Extract<EtsyShopInfo, { connected: true }>;
+
+/** Connection status for the top of the pricing page. `shop` is null while
+ * loading; `onChange` receives the new state after a disconnect. */
+export function EtsyConnectionBar({
+  shop,
+  loadError,
+  onRetry,
+  onChange,
+}: {
+  shop: EtsyShopInfo | null;
+  loadError: string;
+  onRetry: () => void;
+  onChange: (shop: EtsyShopInfo) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const connect = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      window.location.href = await startEtsyConnect();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't start the Etsy connection");
+      setBusy(false);
+    }
+  };
+
+  const disconnect = async () => {
+    if (!confirm("Disconnect your Etsy shop? You can reconnect any time.")) return;
+    setBusy(true);
+    setError("");
+    try {
+      onChange(await disconnectEtsy());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't disconnect");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  let content: React.ReactNode;
+  if (loadError) {
+    content = (
+      <p className="text-sm text-red-700">
+        Couldn&apos;t check your Etsy connection: {loadError}{" "}
+        <button onClick={onRetry} className="underline font-medium">
+          Retry
+        </button>
+      </p>
+    );
+  } else if (!shop) {
+    content = <p className="text-sm text-gray-500">Checking your Etsy connection…</p>;
+  } else if (!shop.connected) {
+    content = (
+      <>
+        <p className="text-sm text-gray-700 flex-1 min-w-48">
+          Connect your Etsy shop to publish listings as drafts.
+          <span className="block text-xs text-gray-500">
+            Etsy only redirects to the live site, so connect there; the
+            connection then works everywhere you sign in.
+          </span>
+        </p>
+        <button
+          onClick={connect}
+          disabled={busy}
+          className="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 text-sm shrink-0"
+        >
+          {busy ? "Opening Etsy…" : "Connect Etsy shop"}
+        </button>
+      </>
+    );
+  } else {
+    content = (
+      <>
+        <p className="text-sm text-gray-700 flex-1">
+          Etsy: connected to <span className="font-medium">{shop.shop_name}</span>
+        </p>
+        <button
+          onClick={disconnect}
+          disabled={busy}
+          className="text-xs text-gray-500 underline hover:text-gray-700"
+        >
+          Disconnect
+        </button>
+      </>
+    );
+  }
+
+  return (
+    // Orange only when something needs doing; connected is the everyday
+    // state, so it stays quiet.
+    <div
+      className={`px-4 py-3 rounded-lg border ${
+        shop?.connected && !loadError && !error
+          ? "bg-white border-gray-200"
+          : "bg-orange-50 border-orange-200"
+      }`}
+    >
+      <div className="flex flex-wrap items-center gap-3">{content}</div>
+      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+    </div>
+  );
+}
+
 interface Props {
+  shop: ConnectedShop;
   design: Design;
   listing: DesignListing;
   photoPaths: string[];
@@ -34,6 +143,7 @@ const selectClass =
   "w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm bg-white";
 
 export default function EtsyPublish({
+  shop,
   design,
   listing,
   photoPaths,
@@ -41,8 +151,6 @@ export default function EtsyPublish({
   updateSettings,
   onPublished,
 }: Props) {
-  const [shop, setShop] = useState<EtsyShopInfo | null>(null);
-  const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -50,14 +158,6 @@ export default function EtsyPublish({
 
   const isBracelet = design.target_length_mm < NECKLACE_MIN_MM;
   const categoryKey = isBracelet ? "etsy_category_bracelet" : "etsy_category_necklace";
-
-  const load = () => {
-    setLoadError("");
-    fetchEtsyShop()
-      .then(setShop)
-      .catch((e) => setLoadError(e instanceof Error ? e.message : "Couldn't reach Etsy"));
-  };
-  useEffect(load, []);
 
   // Per-design outcome; don't carry a previous design's result over.
   useEffect(() => {
@@ -74,7 +174,6 @@ export default function EtsyPublish({
     returns: "",
   });
   useEffect(() => {
-    if (!shop?.connected) return;
     const has = (list: { id: number }[], id: string) => list.some((o) => String(o.id) === id);
     const remembered = settings[categoryKey];
     const guess =
@@ -101,29 +200,6 @@ export default function EtsyPublish({
     // settings write (which this form itself triggers).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop, categoryKey]);
-
-  const connect = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      window.location.href = await startEtsyConnect();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't start the Etsy connection");
-      setBusy(false);
-    }
-  };
-
-  const disconnect = async () => {
-    if (!confirm("Disconnect your Etsy shop? You can reconnect any time.")) return;
-    setBusy(true);
-    try {
-      setShop(await disconnectEtsy());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't disconnect");
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const publish = async () => {
     if (
@@ -169,50 +245,13 @@ export default function EtsyPublish({
     }
   };
 
-  let body: React.ReactNode;
-  if (loadError) {
-    body = (
-      <p className="text-sm text-red-700">
-        {loadError}{" "}
-        <button onClick={load} className="underline font-medium">
-          Retry
-        </button>
-      </p>
-    );
-  } else if (!shop) {
-    body = <p className="text-sm text-gray-500">Checking your Etsy connection…</p>;
-  } else if (!shop.connected) {
-    body = (
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          onClick={connect}
-          disabled={busy}
-          className="flex items-center px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 text-sm"
-        >
-          Connect your Etsy shop
-        </button>
-        <p className="text-xs text-gray-500 flex-1 min-w-48">
-          Lets this app create draft listings in your shop. Etsy only redirects to
-          HTTPS, so connect from the live site; the connection then works
-          everywhere you sign in.
-        </p>
-      </div>
-    );
-  } else {
-    const ready = !!form.category && !!form.shipping && listing.price > 0;
-    body = (
+  const ready = !!form.category && !!form.shipping && listing.price > 0;
+  const body = (
       <>
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-gray-700 flex-1">
-            Connected to <span className="font-medium">{shop.shop_name}</span>
+            Publishes to <span className="font-medium">{shop.shop_name}</span>
           </span>
-          <button
-            onClick={disconnect}
-            disabled={busy}
-            className="text-xs text-gray-500 underline hover:text-gray-700"
-          >
-            Disconnect
-          </button>
           {!showForm && (
             <button
               onClick={() => setShowForm(true)}
@@ -330,8 +369,7 @@ export default function EtsyPublish({
           </div>
         )}
       </>
-    );
-  }
+  );
 
   return (
     <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">

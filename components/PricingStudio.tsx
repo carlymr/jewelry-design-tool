@@ -19,8 +19,8 @@ import {
   X,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
-import EtsyPublish from "@/components/EtsyPublish";
-import { CURRENT_ERA_WHEN_MADE } from "@/lib/etsy";
+import EtsyPublish, { EtsyConnectionBar } from "@/components/EtsyPublish";
+import { CURRENT_ERA_WHEN_MADE, fetchEtsyShop, type EtsyShopInfo } from "@/lib/etsy";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { listDesigns, updateDesign } from "@/lib/designs";
@@ -191,6 +191,18 @@ export default function PricingStudio({ materials }: Props) {
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [etsyUrlInput, setEtsyUrlInput] = useState("");
   const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // Etsy connection (GRA-37), loaded once for the page: the bar at the top
+  // shows it and the listing card's publish panel needs its shop options.
+  const [etsyShop, setEtsyShop] = useState<EtsyShopInfo | null>(null);
+  const [etsyError, setEtsyError] = useState("");
+  const loadEtsyShop = () => {
+    setEtsyError("");
+    fetchEtsyShop()
+      .then(setEtsyShop)
+      .catch((e) => setEtsyError(e instanceof Error ? e.message : "Couldn't reach Etsy"));
+  };
+  useEffect(loadEtsyShop, []);
 
   const materialById = useMemo(
     () => new Map(materials.map((m) => [m.id, m])),
@@ -781,20 +793,35 @@ export default function PricingStudio({ materials }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  const etsyBar = (
+    <EtsyConnectionBar
+      shop={etsyShop}
+      loadError={etsyError}
+      onRetry={loadEtsyShop}
+      onChange={setEtsyShop}
+    />
+  );
+
   if (designsLoaded && designs.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-500">
-        <p className="mb-2">No saved designs yet.</p>
-        <p className="text-sm">
-          Build and save a strand on the Design Board first — pricing works from
-          the actual beads in a design.
-        </p>
+      <div className="space-y-4">
+        {/* Connecting doesn't depend on having a design. */}
+        {etsyBar}
+        <div className="text-center py-12 text-gray-500">
+          <p className="mb-2">No saved designs yet.</p>
+          <p className="text-sm">
+            Build and save a strand on the Design Board first — pricing works from
+            the actual beads in a design.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      {etsyBar}
+
       {/* Design picker */}
       <div className="bg-gray-50 p-4 rounded-lg flex flex-wrap items-center gap-3">
         <select
@@ -1221,8 +1248,15 @@ export default function PricingStudio({ materials }: Props) {
               </div>
               {/* After settings load, so the form seeds from remembered
                   choices and a publish can't overwrite them with defaults. */}
-              {design && settingsLoaded && (
+              {etsyShop && !etsyShop.connected && (
+                <p className="text-sm text-gray-500">
+                  Connect your Etsy shop at the top of the page to publish this
+                  listing as a draft.
+                </p>
+              )}
+              {design && settingsLoaded && etsyShop?.connected && (
                 <EtsyPublish
+                  shop={etsyShop}
                   design={design}
                   listing={listing}
                   photoPaths={photoPaths}
