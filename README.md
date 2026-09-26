@@ -44,9 +44,10 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 
 - **Cost breakdown from actual designs**: pick a saved design and its exact bead composition (plus manually-added extras like clasps and wire) becomes the materials cost — no re-entry
 - **Pricing calculator**: labor hours × hourly rate, overhead %, and markup % produce total cost, selling price, and profit, with optional rounding to the nearest $1, $5, or $10; business-wide rates persist across designs
-- **Etsy listing generator**: Claude drafts an SEO title, description, and tags from the real composition, length, and price — using each material's recorded colors/finish and supplier listing text, so dyed or treated stones read true, not by the stone name's stock coloring — fully editable, with a copy button per field (Etsy's form takes them separately) plus copy-all/download
+- **Etsy listing generator**: Claude drafts an SEO title, description, tags, and Etsy's materials list from the real composition, length, and price — using each material's recorded colors/finish and supplier listing text, so dyed or treated stones read true, not by the stone name's stock coloring — fully editable, with a copy button per field (Etsy's form takes them separately) plus copy-all/download
 - **Finished-piece photos**: add up to six photos of the made piece and the listing is written from how it actually looks; the materials list still decides what it's made of
 - **Autosave and listing status**: pricing inputs and the listing save to the design as you work; each design tracks its status (design, finished, listed, sold) and its Etsy listing link
+- **Publish to Etsy**: connect your shop once, then publish a listing as an Etsy draft — text, price, category, shipping and processing profiles, and the design's photos in order — to review and activate on Etsy
 
 ## Setup
 
@@ -79,6 +80,7 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_SUPABASE_URL` | Browser — inventory and design reads/writes |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Browser — same (`sb_publishable_...`; legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` works as a fallback) |
 | `ANTHROPIC_API_KEY` | Server only — receipt processing, visual generation, and listing generation routes |
+| `ETSY_KEYSTRING`, `ETSY_SHARED_SECRET` | Server only — Etsy connect and draft publishing; the secret also encrypts stored Etsy tokens. Register `https://<your-domain>/etsy/callback` as a callback URL on the Etsy app |
 
 ### 3. Run locally
 
@@ -91,7 +93,7 @@ Open http://localhost:3000. Requires Node 24 (`.nvmrc`).
 
 ## Deploy to Vercel
 
-Import the repo at [vercel.com/new](https://vercel.com/new) (or `vercel` from the CLI), add the three environment variables, and deploy — Next.js is auto-detected.
+Import the repo at [vercel.com/new](https://vercel.com/new) (or `vercel` from the CLI), add the environment variables from the table above, and deploy — Next.js is auto-detected.
 
 After the first deploy, set the **Site URL** (and redirect URL) in Supabase → **Authentication → URL Configuration** to the assigned Vercel URL — Google sign-in silently fails in production until this matches.
 
@@ -110,6 +112,8 @@ app/
   api/generate-visuals/route.ts# name-only visual generation (batch fallback)
   api/generate-listing/route.ts# Etsy listing draft from a design's composition
   api/analyze-photo/route.ts   # photo-accurate visual spec for one material
+  api/etsy/*/route.ts          # Etsy connect (OAuth/PKCE), shop options, draft publishing
+  etsy/callback/page.tsx       # where Etsy returns after the seller approves the app
 components/
   DesignBoard.tsx              # strand, ruler, palette, pattern tools, totals
   BeadSwatch.tsx               # SVG renderer for beads + strand components
@@ -132,7 +136,8 @@ lib/
   designs.ts / materials.ts    # Supabase CRUD (+ provenance-aware import matching)
   orders.ts                    # order upsert, receipt archive upload + signed URLs
   settings.ts                  # per-user pricing/listing settings (user_settings table)
-supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance, api usage, generic_key, design photos bucket + status)
+  etsy-server.ts / etsy.ts     # Etsy API + encrypted token storage (server) / route wrappers (client)
+supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance, api usage, generic_key, design photos bucket + status, Etsy connections)
 ```
 
 Visual and listing generation use the Anthropic structured outputs API (`client.messages.parse` with Zod schemas); receipt extraction uses the same Zod-derived schema but streams the response (`client.messages.stream()`), so long receipts aren't capped by the non-streaming token budget. Results arrive as validated JSON either way.

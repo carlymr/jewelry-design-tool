@@ -19,6 +19,8 @@ import {
   X,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
+import EtsyPublish from "@/components/EtsyPublish";
+import { CURRENT_ERA_WHEN_MADE } from "@/lib/etsy";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { listDesigns, updateDesign } from "@/lib/designs";
@@ -80,6 +82,12 @@ const DEFAULT_SETTINGS: Settings = {
   overhead_pct: "15",
   markup_pct: "200",
   price_rounding: "0",
+  etsy_when_made: CURRENT_ERA_WHEN_MADE,
+  etsy_shipping_profile_id: "",
+  etsy_processing_profile_id: "",
+  etsy_return_policy_id: "",
+  etsy_category_necklace: "",
+  etsy_category_bracelet: "",
   style_guidelines: "",
   title_template: "",
   description_template: "",
@@ -99,6 +107,16 @@ function loadLocalSettings(key: string): Settings | null {
 
 interface Props {
   materials: Material[];
+}
+
+/** Where the picker row's Etsy link goes: the public listing once the piece
+ * is live, the seller's listing editor before that, since a published draft's
+ * public URL is a "not found" page until it's activated. */
+function etsyLinkHref(url: string, status: DesignStatus): string {
+  const id = /etsy\.com\/listing\/(\d+)/.exec(url)?.[1];
+  return id && status !== "listed" && status !== "sold"
+    ? `https://www.etsy.com/your/shops/me/listing-editor/edit/${id}`
+    : url;
 }
 
 /** Copies one listing field for pasting into Etsy's form, which takes each
@@ -750,7 +768,7 @@ export default function PricingStudio({ materials }: Props) {
   );
 
   const listingText = listing
-    ? `TITLE:\n${listing.title}\n\nDESCRIPTION:\n${listing.description}\n\nTAGS:\n${listing.tags.join(", ")}\n\nPRICE: $${listing.price.toFixed(2)}`
+    ? `TITLE:\n${listing.title}\n\nDESCRIPTION:\n${listing.description}\n\nTAGS:\n${listing.tags.join(", ")}\n\n${listing.materials?.length ? `MATERIALS:\n${listing.materials.join(", ")}\n\n` : ""}PRICE: $${listing.price.toFixed(2)}`
     : "";
 
   const downloadListing = () => {
@@ -831,11 +849,15 @@ export default function PricingStudio({ materials }: Props) {
             />
             {design.etsy_listing_url && (
               <a
-                href={design.etsy_listing_url}
+                href={etsyLinkHref(design.etsy_listing_url, status)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-1.5 text-purple-700 hover:text-purple-900"
-                title="Open on Etsy"
+                title={
+                  status === "listed" || status === "sold"
+                    ? "Open on Etsy"
+                    : "Open in Etsy's listing editor (the public page appears once the listing is live)"
+                }
               >
                 <ExternalLink className="w-4 h-4" />
               </a>
@@ -1139,6 +1161,26 @@ export default function PricingStudio({ materials }: Props) {
                   ))}
                 </div>
               </div>
+              {listing.materials?.length ? (
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Materials
+                    </label>
+                    <CopyButton text={listing.materials.join(", ")} label="Materials" />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {listing.materials.map((m, index) => (
+                      <span
+                        key={index}
+                        className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm"
+                      >
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className="bg-purple-50 p-4 rounded-lg">
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <h4 className="font-medium">Listing Price</h4>
@@ -1177,6 +1219,28 @@ export default function PricingStudio({ materials }: Props) {
                   Download
                 </button>
               </div>
+              {/* After settings load, so the form seeds from remembered
+                  choices and a publish can't overwrite them with defaults. */}
+              {design && settingsLoaded && (
+                <EtsyPublish
+                  design={design}
+                  listing={listing}
+                  photoPaths={photoPaths}
+                  settings={settings}
+                  updateSettings={updateSettings}
+                  onPublished={(res) => {
+                    // Link the design to its new draft; status stays as-is
+                    // until the piece is actually live on Etsy.
+                    patchDesign(design.id, { etsy_listing_url: res.listing_url }).catch((e) =>
+                      setError(
+                        `The draft was created, but linking it to this design failed: ${
+                          e instanceof Error ? e.message : "unknown error"
+                        }`
+                      )
+                    );
+                  }}
+                />
+              )}
             </div>
           ) : (
             <p className="text-sm text-gray-500 py-8 text-center">

@@ -13,6 +13,15 @@ export interface PricingSettings {
    * Missing on settings saved before it existed (defaults fill it in). */
   price_rounding: string;
   style_guidelines: string;
+  // Etsy draft defaults (GRA-37): ids from the connected shop, remembered
+  // from the last publish. Empty string = not chosen yet.
+  etsy_when_made: string;
+  etsy_shipping_profile_id: string;
+  etsy_processing_profile_id: string;
+  etsy_return_policy_id: string;
+  /** Category per piece type, since necklaces and bracelets file differently. */
+  etsy_category_necklace: string;
+  etsy_category_bracelet: string;
   title_template: string;
   description_template: string;
 }
