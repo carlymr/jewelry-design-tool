@@ -41,3 +41,17 @@ export function isOwnUpload(
   const m = UPLOAD_PATH_RE.exec(path);
   return m !== null && m[1] === userId && extensions.includes(m[2].toLowerCase());
 }
+
+const DESIGN_PHOTO_PATH_RE = new RegExp(
+  `^(${UUID})/${UUID}/${UUID}\\.(jpg|jpeg|png|gif|webp)$`,
+  "i"
+);
+
+/** Whether `path` is one of the caller's kept design photos — the
+ * `{user_id}/{design_id}/{uuid}.{ext}` shape lib/design-photos.ts generates,
+ * with the folder equal to the caller's id. The design-photos bucket policies
+ * (migration 0013) enforce the same ownership. */
+export function isOwnDesignPhoto(path: string, userId: string): boolean {
+  const m = DESIGN_PHOTO_PATH_RE.exec(path);
+  return m !== null && m[1] === userId;
+}

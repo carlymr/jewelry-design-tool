@@ -1,5 +1,6 @@
 import { getSupabase } from "./supabase";
 import { getUserId } from "./auth";
+import { deleteAllDesignPhotos } from "./design-photos";
 import type { Design, NewDesign } from "./types";
 
 export async function listDesigns(): Promise<Design[]> {
@@ -41,4 +42,7 @@ export async function updateDesign(
 export async function deleteDesign(id: string): Promise<void> {
   const { error } = await getSupabase().from("designs").delete().eq("id", id);
   if (error) throw new Error(error.message);
+  // The row is gone either way; leftover photos are only wasted storage, so a
+  // cleanup failure shouldn't report the delete as failed.
+  await deleteAllDesignPhotos(id).catch(() => {});
 }

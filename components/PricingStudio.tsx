@@ -4,31 +4,44 @@ import GenericBadge from "@/components/GenericBadge";
 import { isGeneric } from "@/lib/generic-catalog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Camera,
+  Check,
   Copy,
   DollarSign,
   Download,
+  ExternalLink,
   Pencil,
   Plus,
   Save,
   Search,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { listDesigns, updateDesign } from "@/lib/designs";
+import {
+  MAX_DESIGN_PHOTOS,
+  deleteDesignPhotos,
+  designPhotoUrls,
+  uploadDesignPhoto,
+} from "@/lib/design-photos";
 import { resolveSetting } from "@/lib/bezel-fit";
 import {
   loadPricingSettings,
   savePricingSettings,
   type PricingSettings as Settings,
 } from "@/lib/settings";
-import type {
-  Design,
-  DesignExtra,
-  DesignListing,
-  Material,
+import {
+  DESIGN_STATUSES,
+  DESIGN_STATUS_LABELS,
+  type Design,
+  type DesignExtra,
+  type DesignListing,
+  type DesignStatus,
+  type Material,
 } from "@/lib/types";
 
 const MM_PER_INCH = 25.4;
@@ -38,6 +51,10 @@ const SETTINGS_KEY = "pricing-settings";
 // tab close can't lose an unsaved (and paid-for) generated listing — same
 // safety net as the design board's strand draft.
 const DRAFT_KEY = "pricing-draft";
+// Pricing inputs and the listing autosave to the design this long after the
+// last edit; the localStorage draft covers the gap and failed saves.
+const AUTOSAVE_MS = 1000;
+const SAVE_ERROR_PREFIX = "Couldn't save your changes";
 
 interface PricingDraft {
   selectedId: string | null;
@@ -51,10 +68,19 @@ interface PricingDraft {
 // title/description format consistent across the whole store. The store of
 // record is user_settings in the DB (lib/settings.ts); localStorage is a
 // cache and offline fallback.
+// Selling-price rounding choices for the Rates panel ("0" = exact).
+const ROUNDING_OPTIONS = [
+  ["0", "Exact"],
+  ["1", "Nearest $1"],
+  ["5", "Nearest $5"],
+  ["10", "Nearest $10"],
+] as const;
+
 const DEFAULT_SETTINGS: Settings = {
   hourly_rate: "25",
   overhead_pct: "15",
   markup_pct: "200",
+  price_rounding: "0",
   style_guidelines: "",
   title_template: "",
   description_template: "",
@@ -76,6 +102,37 @@ interface Props {
   materials: Material[];
 }
 
+/** Copies one listing field for pasting into Etsy's form, which takes each
+ * field separately. */
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        navigator.clipboard.writeText(text).then(
+          () => setCopied(true),
+          () => {}
+        )
+      }
+      className="flex items-center px-2 py-1 text-xs border border-gray-300 rounded-md bg-white hover:bg-gray-100 text-gray-700"
+      title={`Copy ${label.toLowerCase()}`}
+    >
+      {copied ? (
+        <Check className="w-3 h-3 mr-1 text-green-600" />
+      ) : (
+        <Copy className="w-3 h-3 mr-1" />
+      )}
+      {copied ? "Copied" : `Copy ${label.toLowerCase()}`}
+    </button>
+  );
+}
+
 export default function PricingStudio({ materials }: Props) {
   // Settings and drafts are namespaced per account so nothing leaks between
   // sign-ins on a shared browser.
@@ -94,6 +151,7 @@ export default function PricingStudio({ materials }: Props) {
   const [listing, setListing] = useState<DesignListing | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [generating, setGenerating] = useState(false);
 
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -104,6 +162,15 @@ export default function PricingStudio({ materials }: Props) {
   const [showRates, setShowRates] = useState(false);
   const [showExtraSearch, setShowExtraSearch] = useState(false);
   const [extraSearch, setExtraSearch] = useState("");
+
+  // Photos of the finished piece (GRA-38) and the design's listing status
+  // are design metadata, written straight to the row rather than through the
+  // pricing draft's Save — an uploaded file must be recorded right away or
+  // it's orphaned in storage.
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [etsyUrlInput, setEtsyUrlInput] = useState("");
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const materialById = useMemo(
     () => new Map(materials.map((m) => [m.id, m])),
@@ -255,12 +322,132 @@ export default function PricingStudio({ materials }: Props) {
   }, []);
 
   const design = designs.find((d) => d.id === selectedId) ?? null;
+  // The ?? covers rows read before migration 0013 adds the columns.
+  const photoPaths = useMemo(() => design?.photo_paths ?? [], [design]);
+  const status: DesignStatus = design?.status ?? "design";
 
-  const switchDesign = (id: string) => {
+  useEffect(() => {
+    setEtsyUrlInput(design?.etsy_listing_url ?? "");
+  }, [design?.id, design?.etsy_listing_url]);
+
+  // Signed display URLs for photos we don't have one for yet.
+  useEffect(() => {
+    const missing = photoPaths.filter((p) => !photoUrls[p]);
+    if (missing.length === 0) return;
+    let cancelled = false;
+    designPhotoUrls(missing)
+      .then((urls) => {
+        if (!cancelled) setPhotoUrls((prev) => ({ ...prev, ...urls }));
+      })
+      .catch(() => {
+        // Thumbnails just don't render; the paths still go to the generator.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photoPaths]);
+
+  /** Write design metadata (photos, status, Etsy link) and refresh the row
+   * in place. The pricing working copy lives in separate state, so replacing
+   * the row doesn't disturb unsaved pricing or listing edits. */
+  const patchDesign = async (
+    id: string,
+    fields: Partial<Pick<Design, "photo_paths" | "status" | "etsy_listing_url">>
+  ) => {
+    const saved = await updateDesign(id, fields);
+    setDesigns((ds) => ds.map((d) => (d.id === saved.id ? saved : d)));
+    return saved;
+  };
+
+  const addPhotos = async (files: FileList | null) => {
+    if (!design || !files || files.length === 0) return;
+    const room = MAX_DESIGN_PHOTOS - photoPaths.length;
+    const picked = Array.from(files).slice(0, Math.max(0, room));
+    if (picked.length === 0) return;
+    setUploadingPhotos(true);
+    setError("");
+    const uploaded: string[] = [];
+    try {
+      for (const file of picked) uploaded.push(await uploadDesignPhoto(design.id, file));
+      await patchDesign(design.id, { photo_paths: [...photoPaths, ...uploaded] });
+      if (files.length > picked.length) {
+        setError(`A design holds up to ${MAX_DESIGN_PHOTOS} photos; the rest were skipped.`);
+      }
+    } catch (e) {
+      // Nothing points at files that didn't make it into the row.
+      deleteDesignPhotos(uploaded).catch(() => {});
+      setError(e instanceof Error ? e.message : "Photo upload failed");
+    } finally {
+      setUploadingPhotos(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    }
+  };
+
+  const removePhoto = async (path: string) => {
+    if (!design || !confirm("Delete this photo?")) return;
+    setError("");
+    try {
+      await patchDesign(design.id, { photo_paths: photoPaths.filter((p) => p !== path) });
+      // The row no longer references it; a failed file delete only wastes space.
+      deleteDesignPhotos([path]).catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to remove photo");
+    }
+  };
+
+  const makePrimaryPhoto = async (path: string) => {
+    if (!design) return;
+    setError("");
+    try {
+      await patchDesign(design.id, {
+        photo_paths: [path, ...photoPaths.filter((p) => p !== path)],
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to reorder photos");
+    }
+  };
+
+  const changeStatus = async (next: DesignStatus) => {
+    if (!design) return;
+    setError("");
+    try {
+      await patchDesign(design.id, { status: next });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update status");
+    }
+  };
+
+  const saveEtsyUrl = async () => {
+    if (!design) return;
+    const url = etsyUrlInput.trim();
+    if (url === (design.etsy_listing_url ?? "")) return;
+    if (url && !/^https:\/\/([\w-]+\.)*etsy\.com\//i.test(url)) {
+      setError("That doesn't look like an Etsy link — paste the listing's https://www.etsy.com/… URL.");
+      return;
+    }
+    setError("");
+    try {
+      // Linking a listing implies the piece is listed, unless it's already sold.
+      await patchDesign(design.id, {
+        etsy_listing_url: url || null,
+        ...(url && (status === "design" || status === "finished")
+          ? { status: "listed" as const }
+          : {}),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save the Etsy link");
+    }
+  };
+
+  const switchDesign = async (id: string) => {
+    // Save the current design's pending edits first; only a failed save
+    // leaves anything to discard.
     if (
       dirty &&
+      !(await saveToDesign()) &&
       !confirm(
-        `Discard unsaved pricing/listing changes for "${design?.name ?? "this design"}"?`
+        `Couldn't save pricing/listing changes for "${design?.name ?? "this design"}". Discard them?`
       )
     )
       return;
@@ -316,12 +503,21 @@ export default function PricingStudio({ materials }: Props) {
     const directCosts = materialsCost + laborCost;
     const overhead = directCosts * ((parseFloat(settings.overhead_pct) || 0) / 100);
     const totalCost = directCosts + overhead;
-    const sellingPrice = totalCost * ((parseFloat(settings.markup_pct) || 0) / 100);
+    const calculatedPrice = totalCost * ((parseFloat(settings.markup_pct) || 0) / 100);
+    // Round to the nearest step, but never down to $0 for a piece that costs
+    // something. Everything downstream (listing price, profit, the
+    // out-of-date check) uses the rounded figure.
+    const step = parseFloat(settings.price_rounding) || 0;
+    const sellingPrice =
+      step > 0 && calculatedPrice > 0
+        ? Math.max(step, Math.round(calculatedPrice / step) * step)
+        : calculatedPrice;
     return {
       materialsCost,
       laborCost,
       overhead,
       totalCost,
+      calculatedPrice,
       sellingPrice,
       profit: sellingPrice - totalCost,
     };
@@ -420,6 +616,7 @@ export default function PricingStudio({ materials }: Props) {
           style_guidelines: settings.style_guidelines || undefined,
           title_template: settings.title_template || undefined,
           description_template: settings.description_template || undefined,
+          photo_paths: photoPaths.length ? photoPaths : undefined,
         }),
       });
       const result = await res.json();
@@ -439,23 +636,104 @@ export default function PricingStudio({ materials }: Props) {
     setDirty(true);
   };
 
-  const saveToDesign = async () => {
-    if (!selectedId) return;
+  // --- autosave: the working copy is written to the design shortly after
+  // each edit, so a generated (paid-for) listing can't be lost by leaving
+  // the page. Refs give the async save and the unmount flush the latest
+  // values without re-subscribing. ---
+  const working = { selectedId, laborHours, extras, listing };
+  const workingRef = useRef(working);
+  workingRef.current = working;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const savingRef = useRef(false);
+  const saveQueuedRef = useRef(false);
+
+  const writeWorking = (w: typeof working) =>
+    updateDesign(w.selectedId!, {
+      pricing: { labor_hours: parseFloat(w.laborHours) || 0, extras: w.extras },
+      listing: w.listing,
+    });
+
+  /** Save the working copy now; resolves whether it succeeded. */
+  const saveToDesign = async (): Promise<boolean> => {
+    const snap = workingRef.current;
+    if (!snap.selectedId) return true;
+    if (savingRef.current) {
+      // One write at a time, so an older save can't land after a newer one;
+      // the in-flight save runs again when it finishes.
+      saveQueuedRef.current = true;
+      return true;
+    }
+    savingRef.current = true;
     setSaving(true);
-    setError("");
+    let ok = false;
     try {
-      const saved = await updateDesign(selectedId, {
-        pricing: { labor_hours: parseFloat(laborHours) || 0, extras },
-        listing,
-      });
-      setDesigns(designs.map((d) => (d.id === saved.id ? saved : d)));
-      setDirty(false);
+      const saved = await writeWorking(snap);
+      setDesigns((ds) => ds.map((d) => (d.id === saved.id ? saved : d)));
+      const now = workingRef.current;
+      // Edits made while the write was in flight stay dirty for the next save.
+      if (
+        now.selectedId === snap.selectedId &&
+        now.laborHours === snap.laborHours &&
+        now.extras === snap.extras &&
+        now.listing === snap.listing
+      ) {
+        setDirty(false);
+      }
+      setSaveFailed(false);
+      setError((e) => (e.startsWith(SAVE_ERROR_PREFIX) ? "" : e));
+      ok = true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save");
+      setSaveFailed(true);
+      setError(
+        `${SAVE_ERROR_PREFIX} (${e instanceof Error ? e.message : "unknown error"}). They're kept on this device — use Retry save.`
+      );
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
+    if (saveQueuedRef.current) {
+      saveQueuedRef.current = false;
+      return saveToDesign();
+    }
+    return ok;
   };
+
+  useEffect(() => {
+    // A failed save waits for Retry (or the next edit) instead of looping.
+    if (!dirty || !selectedId || saveFailed) return;
+    const t = setTimeout(() => {
+      saveToDesign();
+    }, AUTOSAVE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, selectedId, laborHours, extras, listing, saveFailed]);
+
+  // An edit after a failure clears the failed state so autosave resumes.
+  useEffect(() => {
+    setSaveFailed(false);
+  }, [laborHours, extras, listing]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  useEffect(
+    () => () => {
+      // Leaving the page (in-app navigation) inside the autosave window:
+      // flush without waiting. The localStorage draft is the backstop.
+      if (dirtyRef.current && workingRef.current.selectedId)
+        writeWorking(workingRef.current).catch(() => {});
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   const listingText = listing
     ? `TITLE:\n${listing.title}\n\nDESCRIPTION:\n${listing.description}\n\nTAGS:\n${listing.tags.join(", ")}\n\nPRICE: $${listing.price.toFixed(2)}`
@@ -490,11 +768,14 @@ export default function PricingStudio({ materials }: Props) {
         <select
           value={selectedId ?? ""}
           onChange={(e) => switchDesign(e.target.value)}
+          // Switching saves first; don't race a save that's already running.
+          disabled={saving}
           className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
         >
           {designs.map((d) => (
             <option key={d.id} value={d.id}>
               {d.name}
+              {d.status && d.status !== "design" ? ` · ${DESIGN_STATUS_LABELS[d.status]}` : ""}
             </option>
           ))}
         </select>
@@ -503,13 +784,76 @@ export default function PricingStudio({ materials }: Props) {
             {design.beads?.length ?? 0} beads · {strandIn.toFixed(2)}&quot;
           </span>
         )}
+        {design && (
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            Status
+            <select
+              value={status}
+              onChange={(e) => changeStatus(e.target.value as DesignStatus)}
+              className="px-2 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
+            >
+              {DESIGN_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {DESIGN_STATUS_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {design && (status === "listed" || status === "sold" || design.etsy_listing_url) && (
+          <div className="flex items-center gap-1 min-w-0 w-full sm:w-auto sm:flex-1 sm:max-w-md">
+            <input
+              type="url"
+              value={etsyUrlInput}
+              onChange={(e) => setEtsyUrlInput(e.target.value)}
+              onBlur={saveEtsyUrl}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+              placeholder="Etsy listing URL"
+              className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
+            />
+            {design.etsy_listing_url && (
+              <a
+                href={design.etsy_listing_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1.5 text-purple-700 hover:text-purple-900"
+                title="Open on Etsy"
+              >
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            )}
+          </div>
+        )}
+        {/* Autosave status; doubles as Save now / Retry. */}
         <button
-          onClick={saveToDesign}
+          onClick={() => {
+            setSaveFailed(false);
+            saveToDesign();
+          }}
           disabled={saving || !dirty}
-          className="ml-auto flex items-center px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+          className={`ml-auto flex items-center px-3 py-2 rounded-lg text-sm disabled:cursor-default ${
+            saveFailed
+              ? "bg-red-600 text-white hover:bg-red-700"
+              : dirty && !saving
+                ? "bg-purple-600 text-white hover:bg-purple-700"
+                : "bg-white border border-gray-300 text-gray-600"
+          }`}
+          title={dirty && !saving && !saveFailed ? "Changes save automatically — click to save now" : undefined}
         >
-          <Save className="w-4 h-4 mr-1" />
-          {saving ? "Saving…" : dirty ? "Save to design" : "Saved"}
+          {saving || dirty ? (
+            <Save className="w-4 h-4 mr-1" />
+          ) : (
+            <Check className="w-4 h-4 mr-1 text-green-600" />
+          )}
+          {saving
+            ? "Saving…"
+            : saveFailed
+              ? "Retry save"
+              : dirty
+                ? "Unsaved changes"
+                : "All changes saved"}
         </button>
       </div>
 
@@ -632,12 +976,101 @@ export default function PricingStudio({ materials }: Props) {
             </div>
           )}
 
+          {design && (
+            <div className="mb-4 p-3 bg-white border border-gray-200 rounded-lg">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <h3 className="text-sm font-medium text-gray-700 flex-1">
+                  Photos of the finished piece
+                </h3>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => addPhotos(e.target.files)}
+                />
+                <button
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={uploadingPhotos || photoPaths.length >= MAX_DESIGN_PHOTOS}
+                  className="flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Camera className="w-4 h-4 mr-1" />
+                  {uploadingPhotos ? "Uploading…" : "Add photos"}
+                </button>
+              </div>
+              {photoPaths.length === 0 ? (
+                <p className="text-xs text-gray-500">
+                  Add photos and the listing is written from how the piece
+                  actually looks, not from stored bead specs. Up to{" "}
+                  {MAX_DESIGN_PHOTOS}.
+                </p>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {photoPaths.map((path, i) => (
+                      <div
+                        key={path}
+                        className={`relative w-20 h-20 rounded-md overflow-hidden border bg-gray-100 ${
+                          i === 0 ? "border-purple-400 ring-1 ring-purple-300" : "border-gray-200"
+                        }`}
+                      >
+                        {photoUrls[path] ? (
+                          // Signed Storage URLs; next/image would need the
+                          // Supabase host configured for no real gain here.
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={photoUrls[path]}
+                            alt={`Photo ${i + 1} of the piece`}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span className="flex items-center justify-center w-full h-full text-xs text-gray-400">
+                            …
+                          </span>
+                        )}
+                        {i === 0 ? (
+                          <span className="absolute bottom-0 inset-x-0 text-[10px] text-center bg-purple-600/80 text-white">
+                            Primary
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => makePrimaryPhoto(path)}
+                            className="absolute bottom-0 inset-x-0 text-[10px] text-center bg-black/50 text-white hover:bg-black/70"
+                          >
+                            Make primary
+                          </button>
+                        )}
+                        <button
+                          onClick={() => removePhoto(path)}
+                          className="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-white/90 text-gray-700 hover:text-red-600"
+                          title="Delete photo"
+                          aria-label={`Delete photo ${i + 1}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    {listing
+                      ? "Regenerate to write the listing from these photos."
+                      : "Generate uses these photos to describe the piece."}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
           {listing ? (
             <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Title (140 characters max)
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Title (140 characters max)
+                  </label>
+                  <CopyButton text={listing.title} label="Title" />
+                </div>
                 <textarea
                   value={listing.title}
                   onChange={(e) => updateListing({ title: e.target.value })}
@@ -649,9 +1082,12 @@ export default function PricingStudio({ materials }: Props) {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Description
+                  </label>
+                  <CopyButton text={listing.description} label="Description" />
+                </div>
                 <textarea
                   value={listing.description}
                   onChange={(e) => updateListing({ description: e.target.value })}
@@ -660,9 +1096,13 @@ export default function PricingStudio({ materials }: Props) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Tags
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Tags
+                  </label>
+                  {/* Comma-separated: Etsy's tag field splits a pasted list. */}
+                  <CopyButton text={listing.tags.join(", ")} label="Tags" />
+                </div>
                 <div className="flex flex-wrap gap-2">
                   {listing.tags.map((tag, index) => (
                     <span
@@ -675,7 +1115,10 @@ export default function PricingStudio({ materials }: Props) {
                 </div>
               </div>
               <div className="bg-purple-50 p-4 rounded-lg">
-                <h4 className="font-medium mb-2">Listing Price</h4>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h4 className="font-medium">Listing Price</h4>
+                  <CopyButton text={listing.price.toFixed(2)} label="Price" />
+                </div>
                 <div className="text-2xl font-bold text-purple-700">
                   ${listing.price.toFixed(2)}
                 </div>
@@ -699,7 +1142,7 @@ export default function PricingStudio({ materials }: Props) {
                   className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
                 >
                   <Copy className="w-4 h-4 mr-2" />
-                  Copy Listing
+                  Copy all
                 </button>
                 <button
                   onClick={downloadListing}
@@ -764,6 +1207,20 @@ export default function PricingStudio({ materials }: Props) {
                       </div>
                     ))}
                     <div className="flex items-center justify-between gap-3">
+                      <label className="text-sm text-gray-700">Round price to</label>
+                      <select
+                        value={settings.price_rounding}
+                        onChange={(e) => updateSettings({ price_rounding: e.target.value })}
+                        className="w-32 px-2 py-1 border border-gray-300 rounded-md text-sm bg-white"
+                      >
+                        {ROUNDING_OPTIONS.map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
                       <p className="text-xs text-gray-500">
                         Business-wide rates, saved to your account.
                       </p>
@@ -818,6 +1275,11 @@ export default function PricingStudio({ materials }: Props) {
                   ${costs.sellingPrice.toFixed(2)}
                 </span>
               </div>
+              {Math.abs(costs.sellingPrice - costs.calculatedPrice) > 0.005 && (
+                <p className="text-xs text-gray-500 text-right -mt-2">
+                  Rounded from ${costs.calculatedPrice.toFixed(2)}
+                </p>
+              )}
               <div className="flex justify-between">
                 <span className="text-green-600">Profit:</span>
                 <span className="text-green-600 font-medium">

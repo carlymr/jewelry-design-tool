@@ -9,6 +9,9 @@ export interface PricingSettings {
   hourly_rate: string;
   overhead_pct: string;
   markup_pct: string;
+  /** Round the selling price to the nearest this-many dollars; "0" = exact.
+   * Missing on settings saved before it existed (defaults fill it in). */
+  price_rounding: string;
   style_guidelines: string;
   title_template: string;
   description_template: string;
