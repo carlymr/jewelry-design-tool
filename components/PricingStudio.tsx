@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
+import EtsyPublish from "@/components/EtsyPublish";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { listDesigns, updateDesign } from "@/lib/designs";
@@ -80,6 +81,13 @@ const DEFAULT_SETTINGS: Settings = {
   overhead_pct: "15",
   markup_pct: "200",
   price_rounding: "0",
+  etsy_who_made: "i_did",
+  etsy_when_made: "2020_2026",
+  etsy_shipping_profile_id: "",
+  etsy_processing_profile_id: "",
+  etsy_return_policy_id: "",
+  etsy_category_necklace: "",
+  etsy_category_bracelet: "",
   style_guidelines: "",
   title_template: "",
   description_template: "",
@@ -750,7 +758,7 @@ export default function PricingStudio({ materials }: Props) {
   );
 
   const listingText = listing
-    ? `TITLE:\n${listing.title}\n\nDESCRIPTION:\n${listing.description}\n\nTAGS:\n${listing.tags.join(", ")}\n\nPRICE: $${listing.price.toFixed(2)}`
+    ? `TITLE:\n${listing.title}\n\nDESCRIPTION:\n${listing.description}\n\nTAGS:\n${listing.tags.join(", ")}\n\n${listing.materials?.length ? `MATERIALS:\n${listing.materials.join(", ")}\n\n` : ""}PRICE: $${listing.price.toFixed(2)}`
     : "";
 
   const downloadListing = () => {
@@ -1139,6 +1147,26 @@ export default function PricingStudio({ materials }: Props) {
                   ))}
                 </div>
               </div>
+              {listing.materials?.length ? (
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Materials
+                    </label>
+                    <CopyButton text={listing.materials.join(", ")} label="Materials" />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {listing.materials.map((m, index) => (
+                      <span
+                        key={index}
+                        className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm"
+                      >
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className="bg-purple-50 p-4 rounded-lg">
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <h4 className="font-medium">Listing Price</h4>
@@ -1177,6 +1205,26 @@ export default function PricingStudio({ materials }: Props) {
                   Download
                 </button>
               </div>
+              {design && (
+                <EtsyPublish
+                  design={design}
+                  listing={listing}
+                  photoPaths={photoPaths}
+                  settings={settings}
+                  updateSettings={updateSettings}
+                  onPublished={(res) => {
+                    // Link the design to its new draft; status stays as-is
+                    // until the piece is actually live on Etsy.
+                    patchDesign(design.id, { etsy_listing_url: res.listing_url }).catch((e) =>
+                      setError(
+                        `The draft was created, but linking it to this design failed: ${
+                          e instanceof Error ? e.message : "unknown error"
+                        }`
+                      )
+                    );
+                  }}
+                />
+              )}
             </div>
           ) : (
             <p className="text-sm text-gray-500 py-8 text-center">

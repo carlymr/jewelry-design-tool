@@ -161,6 +161,8 @@ export interface DesignListing {
   title: string;
   description: string;
   tags: string[];
+  /** Etsy's Materials field; absent on listings generated before it existed. */
+  materials?: string[];
   price: number;
 }
 

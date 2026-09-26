@@ -87,6 +87,18 @@ const ListingSchema = z.object({
     .min(8)
     .max(13)
     .describe("13 tags (Etsy's cap) whenever possible"),
+  materials: z
+    .array(
+      z
+        .string()
+        .describe(
+          "A material as a shopper would search it: letters, numbers and spaces only, 45 characters or fewer (e.g. 'chrysoprase', 'sterling silver', 'nylon cord')"
+        )
+    )
+    .max(13)
+    .describe(
+      "Etsy's Materials field: the distinct materials in the piece, most prominent first — stones by name, then metals and stringing material. No sizes, shapes, or counts."
+    ),
 });
 
 const DEFAULT_STYLE =
@@ -207,7 +219,7 @@ ${
     ? `\nDESCRIPTION TEMPLATE — structure the description to follow this outline exactly (substitute bracketed placeholders, keep the section order and any literal text):\n${body.description_template.trim()}\n`
     : ""
 }
-Write an SEO-optimized title, a detailed description (materials, dimensions, care instructions), and exactly 13 Etsy SEO tags. Mention only materials that are actually in the composition above.${
+Write an SEO-optimized title, a detailed description (materials, dimensions, care instructions), exactly 13 Etsy SEO tags, and the list for Etsy's Materials field. Mention only materials that are actually in the composition above.${
     body.title_template || body.description_template
       ? " Consistency with the templates takes precedence over SEO flourishes."
       : ""
