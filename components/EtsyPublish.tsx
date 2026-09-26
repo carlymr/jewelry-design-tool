@@ -114,7 +114,15 @@ export function EtsyConnectionBar({
   }
 
   return (
-    <div className="px-4 py-3 bg-orange-50 border border-orange-200 rounded-lg">
+    // Orange only when something needs doing; connected is the everyday
+    // state, so it stays quiet.
+    <div
+      className={`px-4 py-3 rounded-lg border ${
+        shop?.connected && !loadError && !error
+          ? "bg-white border-gray-200"
+          : "bg-orange-50 border-orange-200"
+      }`}
+    >
       <div className="flex flex-wrap items-center gap-3">{content}</div>
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
     </div>

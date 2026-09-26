@@ -793,26 +793,34 @@ export default function PricingStudio({ materials }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  const etsyBar = (
+    <EtsyConnectionBar
+      shop={etsyShop}
+      loadError={etsyError}
+      onRetry={loadEtsyShop}
+      onChange={setEtsyShop}
+    />
+  );
+
   if (designsLoaded && designs.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-500">
-        <p className="mb-2">No saved designs yet.</p>
-        <p className="text-sm">
-          Build and save a strand on the Design Board first — pricing works from
-          the actual beads in a design.
-        </p>
+      <div className="space-y-4">
+        {/* Connecting doesn't depend on having a design. */}
+        {etsyBar}
+        <div className="text-center py-12 text-gray-500">
+          <p className="mb-2">No saved designs yet.</p>
+          <p className="text-sm">
+            Build and save a strand on the Design Board first — pricing works from
+            the actual beads in a design.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <EtsyConnectionBar
-        shop={etsyShop}
-        loadError={etsyError}
-        onRetry={loadEtsyShop}
-        onChange={setEtsyShop}
-      />
+      {etsyBar}
 
       {/* Design picker */}
       <div className="bg-gray-50 p-4 rounded-lg flex flex-wrap items-center gap-3">
@@ -1240,6 +1248,12 @@ export default function PricingStudio({ materials }: Props) {
               </div>
               {/* After settings load, so the form seeds from remembered
                   choices and a publish can't overwrite them with defaults. */}
+              {etsyShop && !etsyShop.connected && (
+                <p className="text-sm text-gray-500">
+                  Connect your Etsy shop at the top of the page to publish this
+                  listing as a draft.
+                </p>
+              )}
               {design && settingsLoaded && etsyShop?.connected && (
                 <EtsyPublish
                   shop={etsyShop}
