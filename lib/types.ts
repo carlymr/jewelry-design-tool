@@ -123,6 +123,12 @@ export interface Design {
 export const DESIGN_STATUSES = ["design", "finished", "listed", "sold"] as const;
 export type DesignStatus = (typeof DESIGN_STATUSES)[number];
 
+/** Photos a design holds, all of which go to the listing generator; more
+ * adds latency and tokens without describing the piece any better. Lives
+ * here, not in lib/design-photos.ts, because generate-listing enforces it
+ * too and must not import the browser Supabase client. */
+export const MAX_DESIGN_PHOTOS = 6;
+
 export const DESIGN_STATUS_LABELS: Record<DesignStatus, string> = {
   design: "Design",
   finished: "Finished, unlisted",

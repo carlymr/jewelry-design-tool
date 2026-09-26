@@ -8,9 +8,6 @@ import { extensionForMediaType, prepareImage } from "./photo-upload";
 // with the caller's token, and they're the images the Etsy listing will use.
 
 export const DESIGN_PHOTOS_BUCKET = "design-photos";
-/** Photos sent to the listing generator per request; more adds latency and
- * tokens without describing the piece any better. */
-export const MAX_DESIGN_PHOTOS = 6;
 
 /** Upload one photo for a design; returns its storage path. The caller adds
  * the path to designs.photo_paths. */

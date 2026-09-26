@@ -43,8 +43,10 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 ### Pricing & listing
 
 - **Cost breakdown from actual designs**: pick a saved design and its exact bead composition (plus manually-added extras like clasps and wire) becomes the materials cost — no re-entry
-- **Pricing calculator**: labor hours × hourly rate, overhead %, and markup % produce total cost, selling price, and profit; business-wide rates persist across designs
-- **Etsy listing generator**: Claude drafts an SEO title, description, and tags from the real composition, length, and price — using each material's recorded colors/finish and supplier listing text, so dyed or treated stones read true, not by the stone name's stock coloring — fully editable, with copy/download, and saved with the design
+- **Pricing calculator**: labor hours × hourly rate, overhead %, and markup % produce total cost, selling price, and profit, with optional rounding to the nearest $1, $5, or $10; business-wide rates persist across designs
+- **Etsy listing generator**: Claude drafts an SEO title, description, and tags from the real composition, length, and price — using each material's recorded colors/finish and supplier listing text, so dyed or treated stones read true, not by the stone name's stock coloring — fully editable, with a copy button per field (Etsy's form takes them separately) plus copy-all/download
+- **Finished-piece photos**: add up to six photos of the made piece and the listing is written from how it actually looks; the materials list still decides what it's made of
+- **Autosave and listing status**: pricing inputs and the listing save to the design as you work; each design tracks its status (design, finished, listed, sold) and its Etsy listing link
 
 ## Setup
 
@@ -121,6 +123,7 @@ lib/
   visuals.ts                   # shared name→visual API call (board + inventory)
   strand-layout.ts             # as-worn geometry (bracelet circle / necklace drape)
   photo-upload.ts              # shared downscale + transient-upload helpers ({user_id}/{uuid} paths)
+  design-photos.ts             # finished-piece photos: upload, signed URLs, delete (design-photos bucket)
   api-token.ts                 # server-side JWT check (authorizedUser / isAuthorized)
   rate-limit.ts                # per-user hourly caps on the AI routes (fails open)
   useHistory.ts                # bounded undo/redo snapshot stacks (design board)
@@ -129,7 +132,7 @@ lib/
   designs.ts / materials.ts    # Supabase CRUD (+ provenance-aware import matching)
   orders.ts                    # order upsert, receipt archive upload + signed URLs
   settings.ts                  # per-user pricing/listing settings (user_settings table)
-supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance, api usage, generic_key)
+supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance, api usage, generic_key, design photos bucket + status)
 ```
 
 Visual and listing generation use the Anthropic structured outputs API (`client.messages.parse` with Zod schemas); receipt extraction uses the same Zod-derived schema but streams the response (`client.messages.stream()`), so long receipts aren't capped by the non-streaming token budget. Results arrive as validated JSON either way.

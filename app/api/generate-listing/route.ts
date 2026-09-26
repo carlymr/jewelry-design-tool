@@ -5,6 +5,7 @@ import { z } from "zod";
 import { authorizedUser, isOwnDesignPhoto } from "@/lib/api-token";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { getSupabaseConfig } from "@/lib/supabase-config";
+import { MAX_DESIGN_PHOTOS } from "@/lib/types";
 
 // Photos add vision time on top of adaptive thinking.
 export const maxDuration = 120;
@@ -19,7 +20,6 @@ export const maxDuration = 120;
 // the transient receipts flow, they stay with the design.
 
 const PHOTO_BUCKET = "design-photos";
-const MAX_PHOTOS = 6;
 const MEDIA_TYPES = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
@@ -71,7 +71,7 @@ const RequestSchema = z.object({
   style_guidelines: z.string().max(2000).optional(),
   title_template: z.string().max(300).optional(),
   description_template: z.string().max(3000).optional(),
-  photo_paths: z.array(z.string().max(300)).max(MAX_PHOTOS).optional(),
+  photo_paths: z.array(z.string().max(300)).max(MAX_DESIGN_PHOTOS).optional(),
 });
 
 const ListingSchema = z.object({

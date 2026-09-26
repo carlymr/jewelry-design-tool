@@ -23,7 +23,6 @@ import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { listDesigns, updateDesign } from "@/lib/designs";
 import {
-  MAX_DESIGN_PHOTOS,
   deleteDesignPhotos,
   designPhotoUrls,
   uploadDesignPhoto,
@@ -37,6 +36,7 @@ import {
 import {
   DESIGN_STATUSES,
   DESIGN_STATUS_LABELS,
+  MAX_DESIGN_PHOTOS,
   type Design,
   type DesignExtra,
   type DesignListing,
@@ -54,7 +54,6 @@ const DRAFT_KEY = "pricing-draft";
 // Pricing inputs and the listing autosave to the design this long after the
 // last edit; the localStorage draft covers the gap and failed saves.
 const AUTOSAVE_MS = 1000;
-const SAVE_ERROR_PREFIX = "Couldn't save your changes";
 
 interface PricingDraft {
   selectedId: string | null;
@@ -151,7 +150,10 @@ export default function PricingStudio({ materials }: Props) {
   const [listing, setListing] = useState<DesignListing | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saveFailed, setSaveFailed] = useState(false);
+  // Why the last autosave failed; its own banner, so other actions clearing
+  // the general error can't hide it while Retry save is still showing.
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveFailed = saveError !== null;
   const [generating, setGenerating] = useState(false);
 
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -294,6 +296,7 @@ export default function PricingStudio({ materials }: Props) {
     setDirty(false);
     setShowExtraSearch(false);
     setError("");
+    setSaveError(null);
   };
 
   useEffect(() => {
@@ -645,7 +648,9 @@ export default function PricingStudio({ materials }: Props) {
   workingRef.current = working;
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
-  const savingRef = useRef(false);
+  // The running save (with any queued follow-ups), so callers can wait for
+  // the real outcome and at most one write is ever in flight.
+  const inflightRef = useRef<Promise<boolean> | null>(null);
   const saveQueuedRef = useRef(false);
 
   const writeWorking = (w: typeof working) =>
@@ -654,19 +659,10 @@ export default function PricingStudio({ materials }: Props) {
       listing: w.listing,
     });
 
-  /** Save the working copy now; resolves whether it succeeded. */
-  const saveToDesign = async (): Promise<boolean> => {
+  /** One write of the current working copy; resolves whether it succeeded. */
+  const saveOnce = async (): Promise<boolean> => {
     const snap = workingRef.current;
     if (!snap.selectedId) return true;
-    if (savingRef.current) {
-      // One write at a time, so an older save can't land after a newer one;
-      // the in-flight save runs again when it finishes.
-      saveQueuedRef.current = true;
-      return true;
-    }
-    savingRef.current = true;
-    setSaving(true);
-    let ok = false;
     try {
       const saved = await writeWorking(snap);
       setDesigns((ds) => ds.map((d) => (d.id === saved.id ? saved : d)));
@@ -680,23 +676,36 @@ export default function PricingStudio({ materials }: Props) {
       ) {
         setDirty(false);
       }
-      setSaveFailed(false);
-      setError((e) => (e.startsWith(SAVE_ERROR_PREFIX) ? "" : e));
-      ok = true;
+      setSaveError(null);
+      return true;
     } catch (e) {
-      setSaveFailed(true);
-      setError(
-        `${SAVE_ERROR_PREFIX} (${e instanceof Error ? e.message : "unknown error"}). They're kept on this device — use Retry save.`
-      );
-    } finally {
-      savingRef.current = false;
+      setSaveError(e instanceof Error ? e.message : "unknown error");
+      return false;
+    }
+  };
+
+  /** Save now. A call made while a save is running queues one follow-up and
+   * resolves with that follow-up's result, so it only reports success once
+   * the latest edits are actually written. */
+  const saveToDesign = (): Promise<boolean> => {
+    if (inflightRef.current) {
+      saveQueuedRef.current = true;
+      return inflightRef.current;
+    }
+    setSaving(true);
+    const run = (async () => {
+      let ok = await saveOnce();
+      while (saveQueuedRef.current) {
+        saveQueuedRef.current = false;
+        ok = await saveOnce();
+      }
+      return ok;
+    })().finally(() => {
+      inflightRef.current = null;
       setSaving(false);
-    }
-    if (saveQueuedRef.current) {
-      saveQueuedRef.current = false;
-      return saveToDesign();
-    }
-    return ok;
+    });
+    inflightRef.current = run;
+    return run;
   };
 
   useEffect(() => {
@@ -711,7 +720,7 @@ export default function PricingStudio({ materials }: Props) {
 
   // An edit after a failure clears the failed state so autosave resumes.
   useEffect(() => {
-    setSaveFailed(false);
+    setSaveError(null);
   }, [laborHours, extras, listing]);
 
   useEffect(() => {
@@ -727,9 +736,14 @@ export default function PricingStudio({ materials }: Props) {
   useEffect(
     () => () => {
       // Leaving the page (in-app navigation) inside the autosave window:
-      // flush without waiting. The localStorage draft is the backstop.
-      if (dirtyRef.current && workingRef.current.selectedId)
-        writeWorking(workingRef.current).catch(() => {});
+      // flush without waiting, but behind any save already in flight so an
+      // older write can't land last. The localStorage draft is the backstop.
+      if (dirtyRef.current && workingRef.current.selectedId) {
+        const snap = workingRef.current;
+        (inflightRef.current ?? Promise.resolve(true))
+          .then(() => writeWorking(snap))
+          .catch(() => {});
+      }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
@@ -800,7 +814,8 @@ export default function PricingStudio({ materials }: Props) {
             </select>
           </label>
         )}
-        {design && (status === "listed" || status === "sold" || design.etsy_listing_url) && (
+        {/* From Finished on, so pasting the link can itself mark the piece Listed. */}
+        {design && (status !== "design" || design.etsy_listing_url) && (
           <div className="flex items-center gap-1 min-w-0 w-full sm:w-auto sm:flex-1 sm:max-w-md">
             <input
               type="url"
@@ -811,6 +826,7 @@ export default function PricingStudio({ materials }: Props) {
                 if (e.key === "Enter") e.currentTarget.blur();
               }}
               placeholder="Etsy listing URL"
+              aria-label="Etsy listing URL"
               className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
             />
             {design.etsy_listing_url && (
@@ -829,7 +845,7 @@ export default function PricingStudio({ materials }: Props) {
         {/* Autosave status; doubles as Save now / Retry. */}
         <button
           onClick={() => {
-            setSaveFailed(false);
+            setSaveError(null);
             saveToDesign();
           }}
           disabled={saving || !dirty}
@@ -856,6 +872,15 @@ export default function PricingStudio({ materials }: Props) {
                 : "All changes saved"}
         </button>
       </div>
+
+      {saveError !== null && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-700 text-sm">
+            Couldn&apos;t save your changes ({saveError}). They&apos;re kept on this
+            device — use Retry save.
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
