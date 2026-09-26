@@ -107,11 +107,34 @@ export interface Design {
   beads: DesignBead[];
   pricing: DesignPricing | null;
   listing: DesignListing | null;
+  /** Photos of the finished piece in the design-photos bucket, primary first
+   * (GRA-38). They ground listing generation and are kept for the listing. */
+  photo_paths: string[];
+  status: DesignStatus;
+  etsy_listing_url: string | null;
   /** Owner; null only on legacy rows created before auth (see migration 0005). */
   user_id: string | null;
   created_at: string;
   updated_at: string;
 }
+
+/** Where a piece is between the board and a sale (migration 0013's check
+ * constraint holds the same list). */
+export const DESIGN_STATUSES = ["design", "finished", "listed", "sold"] as const;
+export type DesignStatus = (typeof DESIGN_STATUSES)[number];
+
+/** Photos a design holds, all of which go to the listing generator; more
+ * adds latency and tokens without describing the piece any better. Lives
+ * here, not in lib/design-photos.ts, because generate-listing enforces it
+ * too and must not import the browser Supabase client. */
+export const MAX_DESIGN_PHOTOS = 6;
+
+export const DESIGN_STATUS_LABELS: Record<DesignStatus, string> = {
+  design: "Design",
+  finished: "Finished, unlisted",
+  listed: "Listed",
+  sold: "Sold",
+};
 
 export interface DesignBead {
   material_id: string;
@@ -143,8 +166,19 @@ export interface DesignListing {
 
 export type NewDesign = Omit<
   Design,
-  "id" | "created_at" | "updated_at" | "pricing" | "listing" | "user_id"
+  | "id"
+  | "created_at"
+  | "updated_at"
+  | "pricing"
+  | "listing"
+  | "user_id"
+  | "photo_paths"
+  | "status"
+  | "etsy_listing_url"
 > & {
   pricing?: DesignPricing | null;
   listing?: DesignListing | null;
+  photo_paths?: string[];
+  status?: DesignStatus;
+  etsy_listing_url?: string | null;
 };

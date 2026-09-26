@@ -97,15 +97,26 @@ export async function uploadForProcessing(
         : "Upload a photo (PNG, JPG, WebP)."
     );
   }
-  let blob: Blob = file;
-  let mediaType = file.type;
-  if (file.size > IMAGE_DOWNSCALE_THRESHOLD || !ACCEPTED_IMAGE_TYPES.has(file.type)) {
-    blob = await downscaleImage(file);
-    mediaType = "image/jpeg";
-  }
+  const { blob, mediaType } = await prepareImage(file);
   // The processed blob is what callers should keep (e.g. to archive): it's
   // the version that was validated and is in an accepted format.
   return { path: await uploadTransient(blob, mediaType), mediaType, blob };
+}
+
+/** Validate an image and downscale/re-encode it when it's too large or in a
+ * format the API routes can't take. Shared by the transient flow above and
+ * the kept design photos (lib/design-photos.ts), which also go to vision. */
+export async function prepareImage(file: File): Promise<{ blob: Blob; mediaType: string }> {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error("File is too large (max 20MB).");
+  }
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Upload a photo (PNG, JPG, WebP).");
+  }
+  if (file.size > IMAGE_DOWNSCALE_THRESHOLD || !ACCEPTED_IMAGE_TYPES.has(file.type)) {
+    return { blob: await downscaleImage(file), mediaType: "image/jpeg" };
+  }
+  return { blob: file, mediaType: file.type };
 }
 
 /** Photo-only upload (camera buttons). */

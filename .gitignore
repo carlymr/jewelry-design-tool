@@ -33,3 +33,6 @@ public/_reimport/
 
 # Playwright MCP screenshot output
 .playwright-mcp/
+
+# Supabase CLI link state
+supabase/.temp/
