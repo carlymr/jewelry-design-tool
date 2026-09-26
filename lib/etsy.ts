@@ -8,12 +8,31 @@ export interface EtsyOption {
   label: string;
 }
 
+export interface EtsyShippingProfile extends EtsyOption {
+  /** Calculated profiles price shipping from the package, so Etsy requires
+   * the listing's weight and dimensions. */
+  calculated: boolean;
+}
+
+export const WEIGHT_UNITS = ["oz", "lb", "g", "kg"] as const;
+export const DIMENSION_UNITS = ["in", "cm", "mm"] as const;
+
+/** Packaged weight and size, required with a calculated shipping profile. */
+export interface EtsyPackage {
+  item_weight: number;
+  item_weight_unit: (typeof WEIGHT_UNITS)[number];
+  item_length: number;
+  item_width: number;
+  item_height: number;
+  item_dimensions_unit: (typeof DIMENSION_UNITS)[number];
+}
+
 export type EtsyShopInfo =
   | { connected: false }
   | {
       connected: true;
       shop_name: string;
-      shipping_profiles: EtsyOption[];
+      shipping_profiles: EtsyShippingProfile[];
       processing_profiles: EtsyOption[];
       return_policies: EtsyOption[];
       /** Leaf jewelry categories, path relative to Jewelry ("Necklaces > Beaded Necklaces"). */
@@ -30,6 +49,7 @@ export interface EtsyPublishRequest {
   shipping_profile_id: number;
   readiness_state_id?: number;
   return_policy_id?: number;
+  package?: EtsyPackage;
   /** Always "i_did": this app publishes the owner's handmade pieces. */
   who_made: "i_did";
   when_made: string;
@@ -62,10 +82,21 @@ export const WHEN_MADE_OPTIONS: readonly (readonly [string, string])[] = [
 export const validWhenMade = (value: string) =>
   WHEN_MADE_OPTIONS.some(([v]) => v === value) ? value : CURRENT_ERA_WHEN_MADE;
 
+/** A route error with its HTTP status, so callers can tell a rejected
+ * request (4xx: nothing happened) from an ambiguous failure. */
+export class EtsyApiError extends Error {
+  constructor(
+    message: string,
+    public status: number
+  ) {
+    super(message);
+  }
+}
+
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, { ...init, headers: await apiHeaders() });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+  if (!res.ok) throw new EtsyApiError(json.error || `Request failed (${res.status})`, res.status);
   return json as T;
 }
 

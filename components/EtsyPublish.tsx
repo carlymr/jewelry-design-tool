@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 import { ExternalLink, Send } from "lucide-react";
 import {
+  DIMENSION_UNITS,
+  EtsyApiError,
+  WEIGHT_UNITS,
   WHEN_MADE_OPTIONS,
+  type EtsyPackage,
   validWhenMade,
   disconnectEtsy,
   publishToEtsy,
@@ -173,6 +177,20 @@ export default function EtsyPublish({
     processing: "",
     returns: "",
   });
+  // Packaged weight/size, needed only with a calculated shipping profile.
+  // Seeded from (and saved back to) settings: pieces usually ship alike.
+  const [pkg, setPkg] = useState({
+    weight: settings.etsy_item_weight,
+    weightUnit: settings.etsy_item_weight_unit || "oz",
+    length: settings.etsy_item_length,
+    width: settings.etsy_item_width,
+    height: settings.etsy_item_height,
+    dimUnit: settings.etsy_item_dimensions_unit || "in",
+  });
+  const needsPackage = !!shop.shipping_profiles.find((p) => String(p.id) === form.shipping)
+    ?.calculated;
+  const pkgNumbers = [pkg.weight, pkg.length, pkg.width, pkg.height].map(Number);
+  const packageReady = pkgNumbers.every((n) => Number.isFinite(n) && n > 0);
   useEffect(() => {
     const has = (list: { id: number }[], id: string) => list.some((o) => String(o.id) === id);
     const remembered = settings[categoryKey];
@@ -215,6 +233,16 @@ export default function EtsyPublish({
       etsy_shipping_profile_id: form.shipping,
       etsy_processing_profile_id: form.processing,
       etsy_return_policy_id: form.returns,
+      ...(needsPackage
+        ? {
+            etsy_item_weight: pkg.weight,
+            etsy_item_weight_unit: pkg.weightUnit,
+            etsy_item_length: pkg.length,
+            etsy_item_width: pkg.width,
+            etsy_item_height: pkg.height,
+            etsy_item_dimensions_unit: pkg.dimUnit,
+          }
+        : {}),
     });
     try {
       const res = await publishToEtsy({
@@ -227,6 +255,16 @@ export default function EtsyPublish({
         shipping_profile_id: Number(form.shipping),
         readiness_state_id: form.processing ? Number(form.processing) : undefined,
         return_policy_id: form.returns ? Number(form.returns) : undefined,
+        package: needsPackage
+          ? {
+              item_weight: pkgNumbers[0],
+              item_weight_unit: pkg.weightUnit as EtsyPackage["item_weight_unit"],
+              item_length: pkgNumbers[1],
+              item_width: pkgNumbers[2],
+              item_height: pkgNumbers[3],
+              item_dimensions_unit: pkg.dimUnit as EtsyPackage["item_dimensions_unit"],
+            }
+          : undefined,
         who_made: "i_did",
         when_made: validWhenMade(settings.etsy_when_made),
         photo_paths: photoPaths,
@@ -235,17 +273,25 @@ export default function EtsyPublish({
       setShowForm(false);
       onPublished(res);
     } catch (e) {
-      // A failure after Etsy created the draft (a lost response, a timeout)
-      // looks the same from here, so don't invite a blind retry.
+      const message = (e instanceof Error ? e.message : "Publishing failed").replace(/\.$/, "");
+      // A rejected request (4xx, e.g. Etsy refusing the draft) created
+      // nothing. Anything else — a 5xx, a timeout, a lost response — may have
+      // failed after the draft existed, so don't invite a blind retry.
       setError(
-        `${(e instanceof Error ? e.message : "Publishing failed").replace(/\.$/, "")}. A draft may still have been created — check your Etsy drafts before publishing again.`
+        e instanceof EtsyApiError && e.status < 500
+          ? `${message}.`
+          : `${message}. A draft may still have been created — check your Etsy drafts before publishing again.`
       );
     } finally {
       setBusy(false);
     }
   };
 
-  const ready = !!form.category && !!form.shipping && listing.price > 0;
+  const ready =
+    !!form.category &&
+    !!form.shipping &&
+    listing.price > 0 &&
+    (!needsPackage || packageReady);
   const body = (
       <>
         <div className="flex flex-wrap items-center gap-2">
@@ -340,6 +386,68 @@ export default function EtsyPublish({
                 ))}
               </select>
             </label>
+            {needsPackage && (
+              <fieldset className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-white border border-orange-200 rounded-md">
+                <legend className="px-1 text-xs text-gray-600">
+                  This shipping profile is calculated, so Etsy needs the packaged
+                  weight and size
+                </legend>
+                <label className="text-sm text-gray-700">
+                  Package weight
+                  <span className="mt-1 flex gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.1"
+                      value={pkg.weight}
+                      onChange={(e) => setPkg({ ...pkg, weight: e.target.value })}
+                      className={`${selectClass} flex-1 min-w-0`}
+                    />
+                    <select
+                      value={pkg.weightUnit}
+                      onChange={(e) => setPkg({ ...pkg, weightUnit: e.target.value })}
+                      className={`${selectClass} w-20`}
+                      aria-label="Weight unit"
+                    >
+                      {WEIGHT_UNITS.map((u) => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                </label>
+                <div className="text-sm text-gray-700">
+                  Package size (L × W × H)
+                  <span className="mt-1 flex gap-2">
+                    {(["length", "width", "height"] as const).map((dim) => (
+                      <input
+                        key={dim}
+                        type="number"
+                        min={0}
+                        step="0.1"
+                        value={pkg[dim]}
+                        onChange={(e) => setPkg({ ...pkg, [dim]: e.target.value })}
+                        className={`${selectClass} flex-1 min-w-0`}
+                        aria-label={`Package ${dim}`}
+                      />
+                    ))}
+                    <select
+                      value={pkg.dimUnit}
+                      onChange={(e) => setPkg({ ...pkg, dimUnit: e.target.value })}
+                      className={`${selectClass} w-20`}
+                      aria-label="Size unit"
+                    >
+                      {DIMENSION_UNITS.map((u) => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                </div>
+              </fieldset>
+            )}
             <p className="text-xs text-gray-500 sm:col-span-2">
               Creates a draft (not visible to buyers) with the title, description,
               tags, {listing.materials?.length ? "materials, " : ""}price $

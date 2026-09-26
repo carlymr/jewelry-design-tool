@@ -22,6 +22,14 @@ export interface PricingSettings {
   /** Category per piece type, since necklaces and bracelets file differently. */
   etsy_category_necklace: string;
   etsy_category_bracelet: string;
+  /** Packaged weight/size for calculated shipping, remembered from the last
+   * publish (most pieces ship in the same packaging). */
+  etsy_item_weight: string;
+  etsy_item_weight_unit: string;
+  etsy_item_length: string;
+  etsy_item_width: string;
+  etsy_item_height: string;
+  etsy_item_dimensions_unit: string;
   title_template: string;
   description_template: string;
 }
