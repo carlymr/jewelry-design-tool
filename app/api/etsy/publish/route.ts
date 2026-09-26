@@ -26,7 +26,7 @@ const BodySchema = z.object({
   shipping_profile_id: z.number().int().positive(),
   readiness_state_id: z.number().int().positive().optional(),
   return_policy_id: z.number().int().positive().optional(),
-  who_made: z.enum(["i_did", "someone_else", "collective"]),
+  who_made: z.literal("i_did"),
   when_made: z.string().regex(/^[a-z0-9_]+$/),
   photo_paths: z.array(z.string().max(300)).max(MAX_DESIGN_PHOTOS),
 });
@@ -114,11 +114,14 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    // The draft exists now; a photo failure is reported, not fatal.
-    const photoErrors: string[] = [];
+    // The draft exists now; a photo failure is reported, not fatal. Uploads
+    // run in parallel so six photos can't push the function past its time
+    // limit after the draft is created (a timeout then would hide the draft
+    // from the client and invite a duplicate). Each sets its own rank, so
+    // order is kept; six calls fit Etsy's 10-per-second limit.
     const config = getSupabaseConfig();
-    for (const [i, path] of body.photo_paths.entries()) {
-      try {
+    const uploads = await Promise.allSettled(
+      body.photo_paths.map(async (path, i) => {
         if (!config) throw new Error("Supabase is not configured on the server.");
         const res = await fetch(`${config.url}/storage/v1/object/${PHOTO_BUCKET}/${path}`, {
           headers: { Authorization: authHeader, apikey: config.key },
@@ -132,10 +135,13 @@ export async function POST(request: NextRequest) {
           accessToken,
           body: image,
         });
-      } catch (e) {
-        photoErrors.push(`Photo ${i + 1}: ${e instanceof Error ? e.message : "upload failed"}`);
-      }
-    }
+      })
+    );
+    const photoErrors = uploads.flatMap((u, i) =>
+      u.status === "rejected"
+        ? [`Photo ${i + 1}: ${u.reason instanceof Error ? u.reason.message : "upload failed"}`]
+        : []
+    );
 
     const result: EtsyPublishResult = {
       listing_id: listing.listing_id,

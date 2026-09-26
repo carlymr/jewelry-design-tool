@@ -30,7 +30,8 @@ export interface EtsyPublishRequest {
   shipping_profile_id: number;
   readiness_state_id?: number;
   return_policy_id?: number;
-  who_made: "i_did" | "someone_else" | "collective";
+  /** Always "i_did": this app publishes the owner's handmade pieces. */
+  who_made: "i_did";
   when_made: string;
   photo_paths: string[];
 }
@@ -44,12 +45,22 @@ export interface EtsyPublishResult {
   photo_errors: string[];
 }
 
-/** Etsy's "when was it made" choices that fit this shop. The era value
- * follows Etsy's enum, which Etsy rolls forward over time. */
-export const WHEN_MADE_OPTIONS = [
-  ["2020_2026", "2020–2026 (already made)"],
+/** Etsy's current-era "when made" value. Etsy rolls the era's end year
+ * forward with the calendar ("2020_2026" in 2026), so it's computed rather
+ * than hardcoded; check it against the spec's `when_made` enum if Etsy ever
+ * starts a new decade bucket. */
+export const CURRENT_ERA_WHEN_MADE = `2020_${new Date().getFullYear()}`;
+
+/** Etsy's "when was it made" choices that fit this shop. */
+export const WHEN_MADE_OPTIONS: readonly (readonly [string, string])[] = [
+  [CURRENT_ERA_WHEN_MADE, `2020–${new Date().getFullYear()} (already made)`],
   ["made_to_order", "Made to order"],
-] as const;
+];
+
+/** A remembered when-made value, or the current era if it's no longer one
+ * of the options (e.g. last year's era). */
+export const validWhenMade = (value: string) =>
+  WHEN_MADE_OPTIONS.some(([v]) => v === value) ? value : CURRENT_ERA_WHEN_MADE;
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, { ...init, headers: await apiHeaders() });

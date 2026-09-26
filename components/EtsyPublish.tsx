@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ExternalLink, Send } from "lucide-react";
 import {
   WHEN_MADE_OPTIONS,
+  validWhenMade,
   disconnectEtsy,
   fetchEtsyShop,
   publishToEtsy,
@@ -17,7 +18,7 @@ import type { Design, DesignListing } from "@/lib/types";
 
 // Publish the current listing to the connected Etsy shop as a draft (GRA-37).
 // Shop-specific choices (category, shipping/processing profile, return
-// policy, who/when made) are remembered in the account's pricing settings,
+// policy, when made) are remembered in the account's pricing settings,
 // with the category kept per piece type.
 
 interface Props {
@@ -150,15 +151,19 @@ export default function EtsyPublish({
         shipping_profile_id: Number(form.shipping),
         readiness_state_id: form.processing ? Number(form.processing) : undefined,
         return_policy_id: form.returns ? Number(form.returns) : undefined,
-        who_made: settings.etsy_who_made as "i_did",
-        when_made: settings.etsy_when_made,
+        who_made: "i_did",
+        when_made: validWhenMade(settings.etsy_when_made),
         photo_paths: photoPaths,
       });
       setResult(res);
       setShowForm(false);
       onPublished(res);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Publishing failed");
+      // A failure after Etsy created the draft (a lost response, a timeout)
+      // looks the same from here, so don't invite a blind retry.
+      setError(
+        `${(e instanceof Error ? e.message : "Publishing failed").replace(/\.$/, "")}. A draft may still have been created — check your Etsy drafts before publishing again.`
+      );
     } finally {
       setBusy(false);
     }
@@ -285,7 +290,7 @@ export default function EtsyPublish({
             <label className="text-sm text-gray-700">
               When made
               <select
-                value={settings.etsy_when_made}
+                value={validWhenMade(settings.etsy_when_made)}
                 onChange={(e) => updateSettings({ etsy_when_made: e.target.value })}
                 className={`${selectClass} mt-1`}
               >

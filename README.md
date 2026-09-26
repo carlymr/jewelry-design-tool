@@ -93,7 +93,7 @@ Open http://localhost:3000. Requires Node 24 (`.nvmrc`).
 
 ## Deploy to Vercel
 
-Import the repo at [vercel.com/new](https://vercel.com/new) (or `vercel` from the CLI), add the three environment variables, and deploy — Next.js is auto-detected.
+Import the repo at [vercel.com/new](https://vercel.com/new) (or `vercel` from the CLI), add the environment variables from the table above, and deploy — Next.js is auto-detected.
 
 After the first deploy, set the **Site URL** (and redirect URL) in Supabase → **Authentication → URL Configuration** to the assigned Vercel URL — Google sign-in silently fails in production until this matches.
 

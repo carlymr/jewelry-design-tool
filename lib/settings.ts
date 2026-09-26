@@ -15,7 +15,6 @@ export interface PricingSettings {
   style_guidelines: string;
   // Etsy draft defaults (GRA-37): ids from the connected shop, remembered
   // from the last publish. Empty string = not chosen yet.
-  etsy_who_made: string;
   etsy_when_made: string;
   etsy_shipping_profile_id: string;
   etsy_processing_profile_id: string;
