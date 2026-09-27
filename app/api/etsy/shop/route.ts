@@ -53,7 +53,9 @@ export async function GET(request: NextRequest) {
     const optional = <T,>(p: Promise<Paged<T>>) => p.catch((): Paged<T> => ({ results: [] }));
     const [shop, shipping, readiness, returns, categories] = await Promise.all([
       etsyFetch<{ shop_name: string }>(`/application/shops/${shopId}`, auth),
-      etsyFetch<Paged<{ shipping_profile_id: number; title: string; is_deleted?: boolean }>>(
+      etsyFetch<
+        Paged<{ shipping_profile_id: number; title: string; is_deleted?: boolean; profile_type?: string }>
+      >(
         `/application/shops/${shopId}/shipping-profiles`,
         auth
       ),
@@ -74,7 +76,11 @@ export async function GET(request: NextRequest) {
       shop_name: shop.shop_name,
       shipping_profiles: shipping.results
         .filter((p) => !p.is_deleted)
-        .map((p) => ({ id: p.shipping_profile_id, label: p.title })),
+        .map((p) => ({
+          id: p.shipping_profile_id,
+          label: p.title,
+          calculated: p.profile_type === "calculated",
+        })),
       processing_profiles: readiness.results.map((r) => ({
         id: r.readiness_state_id,
         label: [

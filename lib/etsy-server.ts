@@ -76,8 +76,9 @@ async function etsyErrorFrom(res: Response): Promise<EtsyError> {
     | { error?: string; error_description?: string }
     | null;
   const detail = body?.error_description || body?.error || res.statusText;
-  // Keep status for the token flow's grant checks, but routes answer Etsy
-  // failures as 400 (bad input) or 502 (upstream), never as our own 401.
+  // Keeps Etsy's status: the token flow checks it for a revoked grant, and
+  // etsyErrorResponse passes 4xx through so the client knows nothing was
+  // created.
   return new EtsyError(res.status, `Etsy responded ${res.status}: ${detail}`);
 }
 
@@ -231,7 +232,15 @@ export async function etsyAccess(
 /** JSON error response for a route's catch block. */
 export function etsyErrorResponse(error: unknown): Response {
   const message = error instanceof Error ? error.message : "Unknown error";
+  // Etsy's 4xx pass through (the client reads any 4xx as "nothing was
+  // created"); anything else from upstream is a 502.
   const status =
-    error instanceof EtsyError ? (error.status === 400 || error.status === 500 ? error.status : 502) : 500;
+    error instanceof EtsyError
+      ? error.status >= 400 && error.status < 500
+        ? error.status
+        : error.status === 500
+          ? 500
+          : 502
+      : 500;
   return Response.json({ error: message }, { status });
 }

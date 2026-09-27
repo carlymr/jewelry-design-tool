@@ -3,8 +3,17 @@ import { z } from "zod";
 import { authorizedUser, isOwnDesignPhoto } from "@/lib/api-token";
 import { EtsyError, etsyAccess, etsyErrorResponse, etsyFetch } from "@/lib/etsy-server";
 import { getSupabaseConfig } from "@/lib/supabase-config";
-import { MAX_DESIGN_PHOTOS } from "@/lib/types";
+import { DIMENSION_UNITS, MAX_DESIGN_PHOTOS, WEIGHT_UNITS } from "@/lib/types";
 import type { EtsyPublishResult } from "@/lib/etsy";
+
+const PackageSchema = z.object({
+  item_weight: z.number().positive(),
+  item_weight_unit: z.enum(WEIGHT_UNITS),
+  item_length: z.number().positive(),
+  item_width: z.number().positive(),
+  item_height: z.number().positive(),
+  item_dimensions_unit: z.enum(DIMENSION_UNITS),
+});
 
 // Publishes a design's listing to Etsy as a DRAFT (GRA-37): createDraftListing
 // with the listing text, then the design's photos uploaded in order (rank 1 is
@@ -26,6 +35,7 @@ const BodySchema = z.object({
   shipping_profile_id: z.number().int().positive(),
   readiness_state_id: z.number().int().positive().optional(),
   return_policy_id: z.number().int().positive().optional(),
+  package: PackageSchema.optional(),
   who_made: z.literal("i_did"),
   when_made: z.string().regex(/^[a-z0-9_]+$/),
   photo_paths: z.array(z.string().max(300)).max(MAX_DESIGN_PHOTOS),
@@ -103,6 +113,11 @@ export async function POST(request: NextRequest) {
     if (materials.length) form.set("materials", materials.join(","));
     if (body.readiness_state_id) form.set("readiness_state_id", String(body.readiness_state_id));
     if (body.return_policy_id) form.set("return_policy_id", String(body.return_policy_id));
+    // Calculated shipping profiles price from the package, so Etsy rejects
+    // the draft without these.
+    if (body.package) {
+      for (const [key, value] of Object.entries(body.package)) form.set(key, String(value));
+    }
 
     const listing = await etsyFetch<{ listing_id: number }>(
       `/application/shops/${shopId}/listings`,

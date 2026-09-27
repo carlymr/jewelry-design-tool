@@ -47,7 +47,7 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 - **Etsy listing generator**: Claude drafts an SEO title, description, tags, and Etsy's materials list from the real composition, length, and price — using each material's recorded colors/finish and supplier listing text, so dyed or treated stones read true, not by the stone name's stock coloring — fully editable, with a copy button per field (Etsy's form takes them separately) plus copy-all/download
 - **Finished-piece photos**: add up to six photos of the made piece and the listing is written from how it actually looks; the materials list still decides what it's made of
 - **Autosave and listing status**: pricing inputs and the listing save to the design as you work; each design tracks its status (design, finished, listed, sold) and its Etsy listing link
-- **Publish to Etsy**: connect your shop once, then publish a listing as an Etsy draft — text, price, category, shipping and processing profiles, and the design's photos in order — to review and activate on Etsy
+- **Publish to Etsy**: connect your shop once, then publish a listing as an Etsy draft — text, price, category, shipping and processing profiles, packaged weight and size when the shipping profile is calculated, and the design's photos in order — to review and activate on Etsy
 
 ## Setup
 
