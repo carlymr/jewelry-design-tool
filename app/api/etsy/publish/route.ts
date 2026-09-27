@@ -3,18 +3,16 @@ import { z } from "zod";
 import { authorizedUser, isOwnDesignPhoto } from "@/lib/api-token";
 import { EtsyError, etsyAccess, etsyErrorResponse, etsyFetch } from "@/lib/etsy-server";
 import { getSupabaseConfig } from "@/lib/supabase-config";
-import { MAX_DESIGN_PHOTOS } from "@/lib/types";
+import { DIMENSION_UNITS, MAX_DESIGN_PHOTOS, WEIGHT_UNITS } from "@/lib/types";
 import type { EtsyPublishResult } from "@/lib/etsy";
 
-// Mirrors WEIGHT_UNITS / DIMENSION_UNITS in lib/etsy.ts (not imported: that
-// module pulls in the browser Supabase client).
 const PackageSchema = z.object({
   item_weight: z.number().positive(),
-  item_weight_unit: z.enum(["oz", "lb", "g", "kg"]),
+  item_weight_unit: z.enum(WEIGHT_UNITS),
   item_length: z.number().positive(),
   item_width: z.number().positive(),
   item_height: z.number().positive(),
-  item_dimensions_unit: z.enum(["in", "cm", "mm"]),
+  item_dimensions_unit: z.enum(DIMENSION_UNITS),
 });
 
 // Publishes a design's listing to Etsy as a DRAFT (GRA-37): createDraftListing

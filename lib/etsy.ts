@@ -1,4 +1,7 @@
 import { apiHeaders } from "./auth";
+import { DIMENSION_UNITS, WEIGHT_UNITS } from "./types";
+
+export { DIMENSION_UNITS, WEIGHT_UNITS };
 
 // Client wrappers for the Etsy routes (GRA-37). The server side lives in
 // lib/etsy-server.ts; the routes import only this module's types.
@@ -13,9 +16,6 @@ export interface EtsyShippingProfile extends EtsyOption {
    * the listing's weight and dimensions. */
   calculated: boolean;
 }
-
-export const WEIGHT_UNITS = ["oz", "lb", "g", "kg"] as const;
-export const DIMENSION_UNITS = ["in", "cm", "mm"] as const;
 
 /** Packaged weight and size, required with a calculated shipping profile. */
 export interface EtsyPackage {

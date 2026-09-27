@@ -274,9 +274,11 @@ export default function EtsyPublish({
       onPublished(res);
     } catch (e) {
       const message = (e instanceof Error ? e.message : "Publishing failed").replace(/\.$/, "");
-      // A rejected request (4xx, e.g. Etsy refusing the draft) created
-      // nothing. Anything else — a 5xx, a timeout, a lost response — may have
-      // failed after the draft existed, so don't invite a blind retry.
+      // A 4xx means the request was rejected before any draft existed (the
+      // route passes Etsy's 4xx through, and photo failures after creation
+      // come back in a 200). Anything else — a 5xx, a timeout, a lost
+      // response — may have failed after the draft existed, so don't invite
+      // a blind retry.
       setError(
         e instanceof EtsyApiError && e.status < 500
           ? `${message}.`
@@ -419,7 +421,8 @@ export default function EtsyPublish({
                 </label>
                 <div className="text-sm text-gray-700">
                   Package size (L × W × H)
-                  <span className="mt-1 flex gap-2">
+                  {/* Wraps on narrow screens so each box stays tappable. */}
+                  <span className="mt-1 flex flex-wrap gap-2">
                     {(["length", "width", "height"] as const).map((dim) => (
                       <input
                         key={dim}
@@ -428,7 +431,8 @@ export default function EtsyPublish({
                         step="0.1"
                         value={pkg[dim]}
                         onChange={(e) => setPkg({ ...pkg, [dim]: e.target.value })}
-                        className={`${selectClass} flex-1 min-w-0`}
+                        placeholder={dim[0].toUpperCase()}
+                        className={`${selectClass} flex-1 min-w-16`}
                         aria-label={`Package ${dim}`}
                       />
                     ))}
@@ -446,6 +450,11 @@ export default function EtsyPublish({
                     </select>
                   </span>
                 </div>
+                {!packageReady && (
+                  <p className="sm:col-span-2 text-xs text-amber-800">
+                    Enter the weight and all three dimensions to publish.
+                  </p>
+                )}
               </fieldset>
             )}
             <p className="text-xs text-gray-500 sm:col-span-2">

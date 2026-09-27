@@ -129,6 +129,12 @@ export type DesignStatus = (typeof DESIGN_STATUSES)[number];
  * too and must not import the browser Supabase client. */
 export const MAX_DESIGN_PHOTOS = 6;
 
+/** Package units offered for Etsy's calculated shipping (a subset of Etsy's
+ * enums). Here, not in lib/etsy.ts, so the publish route can validate with
+ * them without importing the browser Supabase client. */
+export const WEIGHT_UNITS = ["oz", "lb", "g", "kg"] as const;
+export const DIMENSION_UNITS = ["in", "cm", "mm"] as const;
+
 export const DESIGN_STATUS_LABELS: Record<DesignStatus, string> = {
   design: "Design",
   finished: "Finished, unlisted",
