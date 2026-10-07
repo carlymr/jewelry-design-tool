@@ -29,6 +29,7 @@ import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { ensureGenericMaterial, updateMaterial } from "@/lib/materials";
 import { GENERIC_BY_KIND, isGeneric, type GenericEntry } from "@/lib/generic-catalog";
+import { isLot } from "@/lib/lots";
 import GenericBadge from "@/components/GenericBadge";
 import {
   createDesign,
@@ -369,6 +370,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     const missing = materials.filter(
       (m) =>
         PLACEABLE_CATEGORIES.has(m.category) &&
+        !isLot(m) &&
         !m.visual &&
         !attemptedVisuals.current.has(m.id)
     );
@@ -402,9 +404,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   }, [materials, onMaterialsChanged]);
 
   // --- palette ---
-  // Everything that can be placed on a strand, before the user's filters.
+  // Everything that can be placed on a strand, before the user's filters. A
+  // lot (GRA-36) is a bag of unsorted stock, not a thing to string — what
+  // comes out of it is specified as ordinary rows.
   const placeable = useMemo(
-    () => materials.filter((m) => PLACEABLE_CATEGORIES.has(m.category) || m.visual),
+    () => materials.filter((m) => !isLot(m) && (PLACEABLE_CATEGORIES.has(m.category) || m.visual)),
     [materials]
   );
   // Only offer types the palette actually holds — including the odd item

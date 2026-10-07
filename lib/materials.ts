@@ -2,6 +2,7 @@ import { getSupabase } from "./supabase";
 import { getUserId } from "./auth";
 import type { Material, MaterialSource, NewMaterial } from "./types";
 import type { GenericEntry } from "./generic-catalog";
+import { toCents } from "./lots";
 
 export async function listMaterials(): Promise<Material[]> {
   const { data, error } = await getSupabase()
@@ -41,6 +42,66 @@ export async function updateMaterial(
 export async function deleteMaterial(id: string): Promise<void> {
   const { error } = await getSupabase().from("materials").delete().eq("id", id);
   if (error) throw new Error(error.message);
+}
+
+/** One material by id — for a surface that holds only a reference to it
+ * (the detail modal looking up the lot a row came from). */
+export async function getMaterial(id: string): Promise<Material | null> {
+  const { data, error } = await getSupabase()
+    .from("materials")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/** The rows specified out of a lot (GRA-36). */
+export async function listLotItems(lotId: string): Promise<Material[]> {
+  const { data, error } = await getSupabase()
+    .from("materials")
+    .select("*")
+    .eq("lot_id", lotId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+/** What the owner found in a lot, as its own inventory row (GRA-36). */
+export interface LotItemInput {
+  name: string;
+  category: string;
+  quantity: number;
+  unit_type: string;
+  /** The slice of the lot's price this item takes; unit_cost derives from it. */
+  lot_cost: number;
+}
+
+/** Specify a material out of a lot: an ordinary row that inherits the lot's
+ * order provenance (same order, same verbatim listing line — that IS where
+ * it came from) and points back at the lot, so pricing and the source panel
+ * can trace it. unit_cost is the allocated cost spread over the quantity;
+ * the visual is left for the caller to fill (lib/visuals.ts) so a failed AI
+ * call can't lose the row. */
+export async function specifyFromLot(lot: Material, item: LotItemInput): Promise<Material> {
+  if (!lot.is_lot) throw new Error("That material is not a lot");
+  const lot_cost = toCents(item.lot_cost);
+  const [row] = await addMaterials([
+    {
+      name: item.name,
+      category: item.category,
+      quantity: item.quantity,
+      unit_type: item.unit_type,
+      unit_cost: item.quantity > 0 ? lot_cost / item.quantity : 0,
+      supplier: lot.supplier,
+      order_id: lot.order_id,
+      source: lot.source,
+      lot_id: lot.id,
+      lot_cost,
+    },
+  ]);
+  if (!row) throw new Error("Could not create the material");
+  return row;
 }
 
 /** The caller's row for a generic catalog entry, seeding it on first use
@@ -102,12 +163,15 @@ export async function matchImportRows(
   const db = getSupabase();
   const select = "id, name, quantity, order_id, visual, source";
   const names = Array.from(new Set(rows.map((r) => r.name)));
+  // Generic rows (GRA-17) share the naming standard with receipt lines but
+  // are not inventory; a receipt must never top one up. Rows specified out
+  // of a lot (GRA-36) carry the lot's order and listing line, so without
+  // this they'd match the lot's own line on a re-upload.
+  const base = () => db.from("materials").select(select).is("generic_key", null).is("lot_id", null);
   const [byNameRes, byOrderRes] = await Promise.all([
-    // Generic rows (GRA-17) share the naming standard with receipt lines but
-    // are not inventory; a receipt must never top one up.
-    db.from("materials").select(select).in("name", names).is("generic_key", null),
+    base().in("name", names),
     orderId
-      ? db.from("materials").select(select).eq("order_id", orderId).is("generic_key", null)
+      ? base().eq("order_id", orderId)
       : Promise.resolve({ data: [] as Candidate[], error: null }),
   ]);
   if (byNameRes.error) throw new Error(byNameRes.error.message);
@@ -174,6 +238,7 @@ export async function importMaterials(
           quantity,
           order_id: orderId,
           source: row.source ?? null,
+          is_lot: row.is_lot ?? false,
           // Keep a visual the user may have refined (photo, drill) over a
           // freshly extracted one.
             ...(match.visual ? {} : { visual: row.visual ?? null }),

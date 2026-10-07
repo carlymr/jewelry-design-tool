@@ -63,6 +63,11 @@ const ExtractedItemSchema = z.object({
     .describe("Estimated individual usable units for this variant (bead count, inches, etc.)"),
   unit_type: z.string().describe("Unit of measure: piece, inch, gram, etc."),
   unit_cost: z.number().describe("Price per unit: total_price / estimated_units"),
+  lot: z
+    .boolean()
+    .describe(
+      "true when the line is an unitemized lot or assortment whose contents cannot be identified from the receipt (sold by weight, 'random mix', a parcel of uncounted stones) — see LOTS; false for every ordinary line, including assortments split into named variants"
+    ),
   source: z
     .object({
       listing_title: z
@@ -161,6 +166,13 @@ SPLITTING ASSORTMENTS — this is important:
 - Do NOT split stones that are multicolored within each individual bead — mookaite, ocean jasper, cherry blossom agate, rhodochrosite banding, rainbow moonstone flash, and the like. Every bead shows the same mix, so it is one material; keep it as a single item (this is the only case where "Multicolor" belongs in a name).
 - Divide the total quantity evenly across variants unless the listing states a per-variant count (1200 beads across 6 variants = 200 each).
 - Allocate the line item's price across variants in proportion to their unit counts, and compute unit_cost per variant.
+
+LOTS AND UNITEMIZED ASSORTMENTS — the opposite of splitting:
+- Split a line only when the receipt actually names its variants (listed colors, sizes, stones, or a photo that shows separable piles). When it does not — "random mix", "assorted shapes and sizes", a bag sold by the pound or gram, a parcel of cabochons sold by carat weight or by a bare lot code whose photo shows many uncounted stones — do NOT invent variants or a piece count. Emit ONE item with lot: true instead; the owner will specify what the bag actually held after sorting it.
+- Name a lot by what is known: "[Material] [Type] Assortment" ("Jasper Beads Assortment", "Mixed Gemstone Cabochon Lot"), and KEEP the parcel or lot code when the line has one ("Cabochon Lot MI-782", "Cabochon Lot S-4") — for lots the code is how the parcel is traced back to its listing photo, unlike the pick-your-stone codes below.
+- A lot's units describe the parcel as sold: unit_type "carat", "gram", or "pound" with estimated_units = the stated weight when sold by weight; "piece" with the stated count when the listing gives one ("Lot of 15 cabochons"); otherwise unit_type "lot" with estimated_units 1. unit_cost = total_price / estimated_units either way, so quantity × unit_cost is always the lot's price.
+- A lot's visual is null — it is never placed on a strand; its contents are.
+- A "Personalization: drill style A/C/D" on a lot means the stones arrive drilled; say so in notes.
 
 PICK-YOUR-STONE CABOCHONS — one-of-a-kind stones sold through generic listings:
 - Stone shops sell individual cabochons through listings where the buyer picks a specific stone from a photo; the title is then generic (often plural, "Mix Shapes", or keyword-stuffed) and the actual stone is identified only by the variation/personalization line. Selection formats seen in the wild: "IR3896 30X24X5MM43CT" (lot code + L×W×H mm + carat weight), "ITEM CODE: SF-2996 24X11X4 mm", "Number: 11. 25x25x5 mm", "Price & details: 4. 38x23x6 MM, 38 CT", "Choose Your Favorite Number: 1421. 21X12X6 MM", or a calibrated-size choice like "Sizes: 9 mm".

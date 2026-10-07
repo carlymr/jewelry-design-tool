@@ -11,16 +11,20 @@ import {
   ChevronRight,
   Pencil,
   Info,
+  PackagePlus,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
 import SearchField from "@/components/SearchField";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
 import MaterialDetailModal, { SourcePanel } from "@/components/MaterialDetail";
+import LotSpecifyModal, { LotPanel } from "@/components/LotSpecify";
+import LotBadge from "@/components/LotBadge";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
 import { listOrders } from "@/lib/orders";
 import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
 import { isGeneric } from "@/lib/generic-catalog";
+import { isFromLot, isLot } from "@/lib/lots";
 import GenericBadge from "@/components/GenericBadge";
 import {
   CATEGORIES,
@@ -62,6 +66,8 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
   // Which material's detail modal is open (id, so a post-save refresh flows
   // straight into the open modal instead of leaving it on a stale object).
   const [detailId, setDetailId] = useState<string | null>(null);
+  // Which lot the "specify a material" modal is open for (GRA-36).
+  const [specifyId, setSpecifyId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -86,7 +92,18 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
     };
   }, [orderIdsKey]);
 
-  const detail = detailId ? materials.find((m) => m.id === detailId) ?? null : null;
+  const byId = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials]);
+  const detail = detailId ? byId.get(detailId) ?? null : null;
+  const specify = specifyId ? byId.get(specifyId) ?? null : null;
+
+  // Rows specified out of each lot, for the allocation shown on the lot.
+  const lotItems = useMemo(() => {
+    const map = new Map<string, Material[]>();
+    for (const m of materials) {
+      if (m.lot_id) map.set(m.lot_id, [...(map.get(m.lot_id) ?? []), m]);
+    }
+    return map;
+  }, [materials]);
 
   // Only offer types the inventory actually holds, so no choice comes back empty.
   const categoryOptions = useMemo(() => presentCategories(materials), [materials]);
@@ -162,7 +179,12 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
   };
 
   const handleDelete = (material: Material) => {
-    if (!confirm(`Delete "${material.name}" from inventory?`)) return;
+    const specified = lotItems.get(material.id)?.length ?? 0;
+    const note =
+      specified > 0
+        ? ` The ${specified} material${specified === 1 ? "" : "s"} specified from it will stay, without the link back to the lot.`
+        : "";
+    if (!confirm(`Delete "${material.name}" from inventory?${note}`)) return;
     run(() => deleteMaterial(material.id));
   };
 
@@ -181,7 +203,9 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
       ["Name", "Category", "Cost Per Unit", "Unit", "In Stock"].join(","),
       // Generics aren't inventory and re-seed from the catalog on demand, so
       // they stay out of the export (and can't come back as ordinary rows).
-      ...materials.filter((m) => !isGeneric(m)).map((m) =>
+      // Lots stay out too: re-imported they'd become ordinary rows holding
+      // the parcel's weight as stock. What was specified from them exports.
+      ...materials.filter((m) => !isGeneric(m) && !isLot(m)).map((m) =>
         [
           csvField(m.name),
           csvField(m.category),
@@ -260,7 +284,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
             disabled={materials.length === 0 || busy}
             className="flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
             aria-label="Export CSV"
-            title="Export CSV (generic findings are left out)"
+            title="Export CSV (generic findings and lots are left out)"
           >
             <Download className="w-4 h-4 sm:mr-1" />
             <span className="hidden sm:inline">Export CSV</span>
@@ -354,6 +378,18 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
           >
             {busy ? "Saving..." : "Save"}
           </button>
+          <label
+            className="md:col-span-6 inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer"
+            title="An unsorted assortment: enter the parcel as sold (its size and cost per unit), then specify what it held as separate materials"
+          >
+            <input
+              type="checkbox"
+              checked={!!addForm.is_lot}
+              onChange={(e) => setAddForm({ ...addForm, is_lot: e.target.checked })}
+              className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+            />
+            This is a lot (unsorted assortment — stock is the parcel size as sold)
+          </label>
         </div>
       )}
 
@@ -438,6 +474,10 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 {isGeneric(material) && (
                   <GenericBadge />
                 )}
+                {isLot(material) && <LotBadge />}
+                {isFromLot(material) && (
+                  <LotBadge from={byId.get(material.lot_id!)?.name ?? "lot"} />
+                )}
               </div>
               <div className="col-span-4 md:col-span-2 text-xs md:text-sm text-gray-600">
                 {material.category}
@@ -454,6 +494,13 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 {isGeneric(material) ? (
                   <span className="text-sm text-gray-400" title="Generics aren't stock-tracked">
                     —
+                  </span>
+                ) : isLot(material) ? (
+                  <span
+                    className="text-sm text-gray-600"
+                    title={`${Number(material.quantity)} ${material.unit_type} as sold — what it held is specified as separate materials`}
+                  >
+                    {lotItems.get(material.id)?.length ?? 0} specified
                   </span>
                 ) : (
                 <input
@@ -474,7 +521,10 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 )}
               </div>
               <div className="col-span-12 md:col-span-2 flex justify-end md:justify-center items-center gap-1">
-                {(material.source || material.order_id) && (
+                {(material.source ||
+                  material.order_id ||
+                  isLot(material) ||
+                  isFromLot(material)) && (
                   <button
                     onClick={() =>
                       setSourceOpenId(sourceOpenId === material.id ? null : material.id)
@@ -489,6 +539,17 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                     <Info className="w-4 h-4" />
                   </button>
                 )}
+                {isLot(material) && (
+                  <button
+                    onClick={() => setSpecifyId(material.id)}
+                    disabled={busy}
+                    className="text-teal-700 hover:text-teal-900 p-2 md:p-1 rounded disabled:opacity-40"
+                    title="Specify a material found in this lot"
+                    aria-label="Specify a material from this lot"
+                  >
+                    <PackagePlus className="w-4 h-4" />
+                  </button>
+                )}
                 <button
                   onClick={() => setDetailId(material.id)}
                   disabled={busy}
@@ -498,12 +559,14 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 >
                   <Pencil className="w-4 h-4" />
                 </button>
-                <PhotoVisualButton
-                  material={material}
-                  onUpdated={onChanged}
-                  onError={setError}
-                  className="text-gray-500 hover:text-purple-600 p-2 md:p-1 rounded"
-                />
+                {!isLot(material) && (
+                  <PhotoVisualButton
+                    material={material}
+                    onUpdated={onChanged}
+                    onError={setError}
+                    className="text-gray-500 hover:text-purple-600 p-2 md:p-1 rounded"
+                  />
+                )}
                 <span aria-hidden className="w-px h-4 bg-gray-200" />
                 <button
                   onClick={() => handleDelete(material)}
@@ -516,12 +579,22 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 </button>
               </div>
               {sourceOpenId === material.id && (
-                <div className="col-span-12 mt-1">
-                  <SourcePanel
-                    material={material}
-                    order={material.order_id ? orders.get(material.order_id) : undefined}
-                    onError={setError}
-                  />
+                <div className="col-span-12 mt-1 space-y-1">
+                  {(material.source || material.order_id || isFromLot(material)) && (
+                    <SourcePanel
+                      material={material}
+                      order={material.order_id ? orders.get(material.order_id) : undefined}
+                      lot={material.lot_id ? byId.get(material.lot_id) : undefined}
+                      onError={setError}
+                    />
+                  )}
+                  {isLot(material) && (
+                    <LotPanel
+                      lot={material}
+                      items={lotItems.get(material.id) ?? []}
+                      onSpecify={() => setSpecifyId(material.id)}
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -585,6 +658,16 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
           </span>
         )}
       </div>
+
+      {specify && (
+        <LotSpecifyModal
+          lot={specify}
+          items={lotItems.get(specify.id) ?? []}
+          onClose={() => setSpecifyId(null)}
+          onCreated={onChanged}
+          onError={setError}
+        />
+      )}
 
       {detail && (
         <MaterialDetailModal
