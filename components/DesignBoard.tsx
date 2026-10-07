@@ -39,6 +39,7 @@ import {
 import {
   pendantAttachment,
   colorFamilyOf,
+  formatSizeMm,
   sizeBucketOf,
   DRILL_LABELS,
   type BeadVisual,
@@ -1280,8 +1281,10 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             <span className="block text-sm text-gray-900 leading-snug">{m.name}</span>
             <span className="block text-xs text-gray-500">
               {isGeneric(m) ? <GenericBadge /> : `${m.quantity} in stock`} · ${m.unit_cost.toFixed(3)}/ea
-              {m.visual?.shape === "chain" && (
+              {m.visual?.shape === "chain" ? (
                 <span className="text-purple-600"> · adds 1&quot; per click</span>
+              ) : (
+                m.visual && ` · ${formatSizeMm(m.visual)}`
               )}
               {fitCounts.has(m.id) && (
                 <span className="text-amber-600">
