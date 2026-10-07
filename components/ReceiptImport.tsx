@@ -5,6 +5,7 @@ import { CATEGORIES } from "@/lib/types";
 import { useRef, useState } from "react";
 import { Upload, Eye, Trash2 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
+import LotBadge from "@/components/LotBadge";
 import { apiHeaders } from "@/lib/auth";
 import { importMaterials, matchImportRows } from "@/lib/materials";
 import { archiveReceipt, findOrder, updateOrder, upsertOrder } from "@/lib/orders";
@@ -123,8 +124,10 @@ export default function ReceiptImport({ onImported }: Props) {
           quantity: item.estimated_units,
           unit_type: item.unit_type,
           supplier: order?.seller ?? "",
-          visual: item.visual ?? null,
+          // A lot is never placed, so it never needs artwork (GRA-36).
+          visual: item.lot ? null : item.visual ?? null,
           source: item.source,
+          is_lot: item.lot,
         })),
         orderRow.id
       );
@@ -261,6 +264,7 @@ export default function ReceiptImport({ onImported }: Props) {
                         )}
                         <div className="font-medium text-gray-900">
                           {item.name}
+                          {item.lot && <LotBadge className="ml-2" />}
                           {matches[index] && (
                             <span
                               className="ml-2 inline-block align-middle text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800"
@@ -295,6 +299,18 @@ export default function ReceiptImport({ onImported }: Props) {
                       <span>
                         • {item.quantity_purchased} • ${item.total_price.toFixed(2)} total
                       </span>
+                      <label
+                        className="ml-auto inline-flex items-center gap-1 text-xs text-gray-600 cursor-pointer"
+                        title="A lot is imported as one row whose contents you specify from the inventory after sorting it, instead of guessed variants"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!item.lot}
+                          onChange={(e) => updateItem(index, { lot: e.target.checked })}
+                          className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                        />
+                        Lot
+                      </label>
                     </div>
                     {item.source?.variation && (
                       <div className="text-xs text-gray-400 mt-0.5 truncate" title={item.source.listing_title}>

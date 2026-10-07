@@ -2,6 +2,7 @@
 
 import GenericBadge from "@/components/GenericBadge";
 import { isGeneric } from "@/lib/generic-catalog";
+import { isLot } from "@/lib/lots";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Camera,
@@ -598,6 +599,8 @@ export default function PricingStudio({ materials }: Props) {
   const extraCandidates = useMemo(() => {
     const term = extraSearch.toLowerCase();
     return materials
+      // A lot's price is for the whole bag; its items are what a piece uses.
+      .filter((m) => !isLot(m))
       .filter(
         (m) =>
           m.name.toLowerCase().includes(term) ||

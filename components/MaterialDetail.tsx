@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { ExternalLink, X } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
-import { updateMaterial } from "@/lib/materials";
+import { LotPanel } from "@/components/LotSpecify";
+import { getMaterial, listLotItems, updateMaterial } from "@/lib/materials";
 import { getOrder, receiptUrl } from "@/lib/orders";
 import { generateVisualForName } from "@/lib/visuals";
 import {
@@ -17,6 +18,7 @@ import {
   type CabOutline,
 } from "@/lib/bead-visual";
 import { isGeneric } from "@/lib/generic-catalog";
+import { isLot, lotPrice, toCents } from "@/lib/lots";
 import { CATEGORIES, type Material, type Order } from "@/lib/types";
 
 // The one place a material's details are viewed and edited — opened from the
@@ -28,10 +30,13 @@ import { CATEGORIES, type Material, type Order } from "@/lib/types";
 export function SourcePanel({
   material,
   order,
+  lot,
   onError,
 }: {
   material: Material;
   order: Order | undefined;
+  /** The lot this row was specified from, when it was (GRA-36). */
+  lot?: Material | null;
   onError: (message: string) => void;
 }) {
   const src = material.source;
@@ -73,6 +78,12 @@ export function SourcePanel({
           <div>${src.line_price.toFixed(2)} paid for this line</div>
         </>
       )}
+      {material.lot_id && (
+        <div className="text-teal-800">
+          Specified from the lot{lot ? ` "${lot.name}"` : ""}: ${Number(material.lot_cost ?? 0).toFixed(2)}
+          {lot ? ` of its $${lotPrice(lot).toFixed(2)}` : ""}
+        </div>
+      )}
     </div>
   );
 }
@@ -89,6 +100,12 @@ interface Draft {
   drill: DrillType | "";
   /** Cabochons and bezel settings; "" = not recorded (drawn as oval). */
   outline: CabOutline | "";
+  /** An unsorted assortment whose contents are specified as other rows. */
+  is_lot: boolean;
+  /** Lots only: what the whole parcel cost. The price is what the owner
+   * knows; unit_cost is derived from it on save, so resizing a parcel
+   * (100 carat → 3 pieces) keeps what was paid instead of the old rate. */
+  lot_price: string;
 }
 
 interface Props {
@@ -112,6 +129,8 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
     quantity: String(material.quantity),
     drill: material.visual?.drill ?? "",
     outline: material.visual?.outline ?? "",
+    is_lot: material.is_lot,
+    lot_price: lotPrice(material).toFixed(2),
   });
   const [regenVisual, setRegenVisual] = useState(false);
   const regenTouched = useRef(false);
@@ -120,6 +139,33 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const generic = isGeneric(material);
+  // The draft's flag, not the row's: relabeling happens as the box is ticked.
+  const lot = form.is_lot;
+
+  // Lots (GRA-36): the lot a row came from, and a lot's own specified rows —
+  // fetched here for the same reason as the order below.
+  const [parentLot, setParentLot] = useState<Material | null>(null);
+  const [lotItems, setLotItems] = useState<Material[]>([]);
+  useEffect(() => {
+    let stale = false;
+    if (material.lot_id) {
+      getMaterial(material.lot_id)
+        .then((m) => {
+          if (!stale) setParentLot(m);
+        })
+        .catch(() => {});
+    }
+    if (material.is_lot) {
+      listLotItems(material.id)
+        .then((rows) => {
+          if (!stale) setLotItems(rows);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      stale = true;
+    };
+  }, [material.id, material.lot_id, material.is_lot]);
 
   // Provenance: the modal fetches its own order so either surface can open it
   // without carrying an orders map around.
@@ -152,14 +198,24 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
     try {
       const name = form.name.trim();
       if (!name) throw new Error("Material name is required");
-      const unit_cost = parseFloat(form.unit_cost);
-      if (Number.isNaN(unit_cost) || unit_cost < 0) {
-        throw new Error("Cost must be a non-negative number");
-      }
       // Generics carry no stock: leave their placeholder quantity alone.
       const quantity = generic ? null : parseFloat(form.quantity);
       if (quantity !== null && (Number.isNaN(quantity) || quantity < 0)) {
-        throw new Error("Stock must be a non-negative number");
+        throw new Error(`${lot ? "Lot size" : "Stock"} must be a non-negative number`);
+      }
+      let unit_cost: number;
+      if (lot) {
+        const price = parseFloat(form.lot_price);
+        if (Number.isNaN(price) || price < 0) {
+          throw new Error("Lot price must be a non-negative number");
+        }
+        if (!(quantity! > 0)) throw new Error("A lot's size must be positive");
+        unit_cost = price / quantity!;
+      } else {
+        unit_cost = parseFloat(form.unit_cost);
+        if (Number.isNaN(unit_cost) || unit_cost < 0) {
+          throw new Error("Cost must be a non-negative number");
+        }
       }
       await updateMaterial(material.id, {
         name,
@@ -167,6 +223,7 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
         unit_cost,
         unit_type: form.unit_type.trim() || "piece",
         ...(quantity === null ? {} : { quantity }),
+        ...(generic ? {} : { is_lot: form.is_lot }),
       });
       const drill: DrillType | null = form.drill || null;
       const outline: CabOutline | null = form.outline || null;
@@ -277,14 +334,18 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                 className={fieldClass}
                 autoFocus
               />
-              <PhotoVisualButton
-                material={material}
-                onUpdated={onChanged}
-                onError={setError}
-                className="p-2 text-gray-400 hover:text-purple-600 shrink-0"
-              />
+              {!lot && (
+                <PhotoVisualButton
+                  material={material}
+                  onUpdated={onChanged}
+                  onError={setError}
+                  className="p-2 text-gray-400 hover:text-purple-600 shrink-0"
+                />
+              )}
             </span>
           </label>
+          {/* A lot is never drawn — what's specified out of it is. */}
+          {!lot && (
           <label
             className="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer"
             title="Regenerates the swatch artwork from the corrected name"
@@ -301,6 +362,7 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
             />
             Refresh visual from name
           </label>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-xs text-gray-600">
@@ -318,18 +380,42 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                 ))}
               </select>
             </label>
-            <label className="block text-xs text-gray-600">
-              Cost per unit ($)
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.unit_cost}
-                onChange={(e) => setDraft({ unit_cost: e.target.value })}
-                disabled={busy}
-                className={`${fieldClass} mt-1`}
-              />
-            </label>
+            {lot ? (
+              <label className="block text-xs text-gray-600">
+                Lot price ($, whole parcel)
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.lot_price}
+                  onChange={(e) => setDraft({ lot_price: e.target.value })}
+                  disabled={busy}
+                  className={`${fieldClass} mt-1`}
+                />
+                <span className="block mt-0.5 text-gray-500">
+                  {(() => {
+                    const price = parseFloat(form.lot_price);
+                    const qty = parseFloat(form.quantity);
+                    return price >= 0 && qty > 0
+                      ? `= $${(price / qty).toFixed(4)} per ${form.unit_type.trim() || "unit"}`
+                      : "Per-unit cost follows from the price and size.";
+                  })()}
+                </span>
+              </label>
+            ) : (
+              <label className="block text-xs text-gray-600">
+                Cost per unit ($)
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.unit_cost}
+                  onChange={(e) => setDraft({ unit_cost: e.target.value })}
+                  disabled={busy}
+                  className={`${fieldClass} mt-1`}
+                />
+              </label>
+            )}
             <label className="block text-xs text-gray-600">
               Unit
               <input
@@ -346,7 +432,7 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
               </p>
             ) : (
               <label className="block text-xs text-gray-600">
-                In stock
+                {lot ? `Lot size (${form.unit_type.trim() || "units"} as sold)` : "In stock"}
                 <input
                   type="number"
                   min="0"
@@ -401,9 +487,48 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
             )}
           </div>
 
-          {(material.source || material.order_id) && (
-            <SourcePanel material={material} order={order} onError={setError} />
+          {!generic && (
+            <label
+              className="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer"
+              title={
+                material.lot_id
+                  ? "This material was specified out of a lot, so it can't be one itself"
+                  : lotItems.length > 0
+                    ? `${lotItems.length} material${lotItems.length === 1 ? " was" : "s were"} specified from this lot — delete or re-link those first`
+                    : "An unsorted assortment (a bag of mixed beads, a parcel of uncounted stones): never placed on the board itself; what it held is specified as separate materials"
+              }
+            >
+              <input
+                type="checkbox"
+                checked={form.is_lot}
+                // A row can't be both a lot and something specified out of
+                // one, and un-lotting would orphan the items pointing here.
+                disabled={busy || !!material.lot_id || (material.is_lot && lotItems.length > 0)}
+                onChange={(e) => {
+                  // Carry the figure across: the row's current total becomes
+                  // the lot price, or the lot price spreads back over units.
+                  const qty = parseFloat(form.quantity);
+                  const cost = parseFloat(form.unit_cost);
+                  const price = parseFloat(form.lot_price);
+                  setDraft({
+                    is_lot: e.target.checked,
+                    ...(e.target.checked
+                      ? { lot_price: (qty >= 0 && cost >= 0 ? toCents(qty * cost) : 0).toFixed(2) }
+                      : qty > 0 && price >= 0
+                        ? { unit_cost: String(price / qty) }
+                        : {}),
+                  });
+                }}
+                className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+              />
+              This is a lot — stock above is the parcel size as sold
+            </label>
           )}
+
+          {(material.source || material.order_id || material.lot_id) && (
+            <SourcePanel material={material} order={order} lot={parentLot} onError={setError} />
+          )}
+          {isLot(material) && <LotPanel lot={material} items={lotItems} />}
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
