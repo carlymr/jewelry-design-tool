@@ -10,6 +10,12 @@ export const CATEGORIES = [
   "Other",
 ] as const;
 
+/** Categories whose items can sit on a strand: what the board's palette
+ * offers (anything else with a generated visual is placeable too) and the
+ * default when specifying a material out of a lot. Wire/cord/tools stay
+ * inventory-only. */
+export const PLACEABLE_CATEGORIES = new Set<string>(["Beads", "Cabochons", "Findings"]);
+
 /** The categories actually present in a set of materials, in CATEGORIES order
  * with any unrecognized ones (free-text rows) appended alphabetically. Filter
  * dropdowns build their options from this so they never offer an empty choice. */

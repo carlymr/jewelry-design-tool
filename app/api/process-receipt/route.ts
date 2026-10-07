@@ -180,7 +180,7 @@ PICK-YOUR-STONE CABOCHONS — one-of-a-kind stones sold through generic listings
 - Identical titles on multiple lines are DIFFERENT one-of-a-kind stones (their selection codes differ) — extract each separately, never merge.
 - If the variation names a different stone than the title, trust the variation; seller dropdowns are mislabeled more often than buyer selections.
 - A matched "pair" listing is 2 physical stones on one line: quantity 2, estimated_units 2, unit_cost = half the line price.
-- Never put lot/selection codes (IR3896, SF-1126, i-2985…) in the name — they identify the listing, not the material.
+- Never put a selection code (IR3896, SF-1126, i-2985…) in the name of a single picked stone — it identifies the listing, not the material. (A lot keeps its parcel code — see LOTS — because the parcel, not one stone, is what's being tracked.)
 - Calibrated-stone listings (exact size chosen from a dropdown, Etsy quantity may exceed 1) use the chosen size in the name and the real Etsy quantity.
 
 PENDANT BLANKS, BEZEL SETTINGS, AND BAILS:

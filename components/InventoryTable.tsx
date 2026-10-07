@@ -24,7 +24,7 @@ import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
 import { listOrders } from "@/lib/orders";
 import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
 import { isGeneric } from "@/lib/generic-catalog";
-import { isFromLot, isLot } from "@/lib/lots";
+import { isFromLot, isLot, lotAllocation } from "@/lib/lots";
 import GenericBadge from "@/components/GenericBadge";
 import {
   CATEGORIES,
@@ -498,9 +498,11 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 ) : isLot(material) ? (
                   <span
                     className="text-sm text-gray-600"
-                    title={`${Number(material.quantity)} ${material.unit_type} as sold — what it held is specified as separate materials`}
+                    title={`${Number(material.quantity)} ${material.unit_type} as sold — what it held is specified as separate materials (edit the size from the pencil)`}
                   >
-                    {lotItems.get(material.id)?.length ?? 0} specified
+                    {lotItems.get(material.id)?.length ?? 0} specified · $
+                    {lotAllocation(material, lotItems.get(material.id) ?? []).remaining.toFixed(2)}{" "}
+                    left
                   </span>
                 ) : (
                 <input

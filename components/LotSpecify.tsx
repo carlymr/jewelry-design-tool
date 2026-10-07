@@ -5,7 +5,7 @@ import { PackagePlus, X } from "lucide-react";
 import { specifyFromLot, updateMaterial } from "@/lib/materials";
 import { generateVisualForName } from "@/lib/visuals";
 import { lotAllocation, lotPrice, toCents } from "@/lib/lots";
-import { CATEGORIES, type Material } from "@/lib/types";
+import { CATEGORIES, PLACEABLE_CATEGORIES, type Material } from "@/lib/types";
 
 // Lots (GRA-36). A lot row is a bag of unsorted stock; this file holds the
 // two surfaces that turn it into inventory: the panel that shows what has
@@ -70,8 +70,6 @@ export function LotPanel({
   );
 }
 
-const PLACEABLE = new Set(["Beads", "Cabochons", "Findings"]);
-
 const fieldClass =
   "w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500 disabled:bg-gray-100";
 
@@ -106,7 +104,7 @@ interface Props {
 export default function LotSpecifyModal({ lot, items, onClose, onCreated, onError }: Props) {
   const emptyDraft = (): Draft => ({
     name: "",
-    category: PLACEABLE.has(lot.category) ? lot.category : "Beads",
+    category: PLACEABLE_CATEGORIES.has(lot.category) ? lot.category : "Beads",
     quantity: "1",
     unit_type: "piece",
     share: "",
@@ -114,28 +112,41 @@ export default function LotSpecifyModal({ lot, items, onClose, onCreated, onErro
   });
   const [form, setForm] = useState<Draft>(emptyDraft);
   const [withVisual, setWithVisual] = useState(true);
+  // "Touched" means the owner typed a value that's still there: clearing a
+  // field hands it back to the derivation.
   const shareTouched = useRef(false);
   const costTouched = useRef(false);
+  const nameRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [added, setAdded] = useState(0);
 
   const unitCost = Number(lot.unit_cost);
   const alloc = lotAllocation(lot, items);
-  const sameUnit = lot.unit_type.trim().toLowerCase() === form.unit_type.trim().toLowerCase();
+  const unitsMatch = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  const sameUnit = unitsMatch(lot.unit_type, form.unit_type);
   const quantity = parseFloat(form.quantity);
   const cost = parseFloat(form.cost);
   const perUnit = quantity > 0 && cost >= 0 ? cost / quantity : NaN;
 
   const setDraft = (patch: Partial<Draft>) => setForm((f) => ({ ...f, ...patch }));
 
-  // Share → cost is the derivation; typing a cost directly wins over it.
+  // Share → cost is the derivation; a cost the owner typed wins over it, and
+  // an emptied share empties the derived cost rather than leaving a stale one.
   const setShare = (share: string) => {
     const n = parseFloat(share);
     setDraft({
       share,
-      ...(costTouched.current || Number.isNaN(n) ? {} : { cost: toCents(n * unitCost).toFixed(2) }),
+      ...(costTouched.current ? {} : { cost: Number.isNaN(n) ? "" : toCents(n * unitCost).toFixed(2) }),
     });
+  };
+  const handleShare = (value: string) => {
+    shareTouched.current = value.trim() !== "";
+    setShare(value);
+  };
+  const handleCost = (value: string) => {
+    costTouched.current = value.trim() !== "";
+    setDraft({ cost: value });
   };
   const handleQuantity = (value: string) => {
     setDraft({ quantity: value });
@@ -143,8 +154,8 @@ export default function LotSpecifyModal({ lot, items, onClose, onCreated, onErro
   };
   const handleUnit = (value: string) => {
     setDraft({ unit_type: value });
-    const same = lot.unit_type.trim().toLowerCase() === value.trim().toLowerCase();
-    if (same && !shareTouched.current) setShare(form.quantity);
+    // Entering or leaving the lot's unit re-derives (or clears) the share.
+    if (!shareTouched.current) setShare(unitsMatch(lot.unit_type, value) ? form.quantity : "");
   };
 
   const save = async (another: boolean) => {
@@ -183,6 +194,7 @@ export default function LotSpecifyModal({ lot, items, onClose, onCreated, onErro
         costTouched.current = false;
         setForm(emptyDraft());
         setBusy(false);
+        nameRef.current?.focus();
       } else {
         onClose();
       }
@@ -245,6 +257,7 @@ export default function LotSpecifyModal({ lot, items, onClose, onCreated, onErro
               placeholder="Picture Jasper Beads 8mm Round"
               disabled={busy}
               className={`${fieldClass} mt-1`}
+              ref={nameRef}
               autoFocus
             />
           </label>
@@ -289,20 +302,16 @@ export default function LotSpecifyModal({ lot, items, onClose, onCreated, onErro
             </span>
             {showShare && (
               <label className="block text-xs text-gray-600">
-                Takes ({lot.unit_type} of the lot)
+                Share of lot ({lot.unit_type})
                 <input
                   type="number"
                   min="0"
                   step="any"
                   value={form.share}
-                  onChange={(e) => {
-                    shareTouched.current = true;
-                    setShare(e.target.value);
-                  }}
-                  placeholder={sameUnit ? form.quantity : `e.g. 43 ${lot.unit_type}`}
+                  onChange={(e) => handleShare(e.target.value)}
+                  placeholder={sameUnit ? form.quantity : "e.g. 43"}
                   disabled={busy}
                   className={`${fieldClass} mt-1`}
-                  title={`Priced at ${money(unitCost)} per ${lot.unit_type}`}
                 />
               </label>
             )}
@@ -313,15 +322,20 @@ export default function LotSpecifyModal({ lot, items, onClose, onCreated, onErro
                 min="0"
                 step="0.01"
                 value={form.cost}
-                onChange={(e) => {
-                  costTouched.current = true;
-                  setDraft({ cost: e.target.value });
-                }}
+                onChange={(e) => handleCost(e.target.value)}
                 disabled={busy}
                 className={`${fieldClass} mt-1`}
               />
             </label>
           </div>
+          {showShare && (
+            <p className="text-xs text-gray-500 -mt-1">
+              The lot is priced at {money(unitCost)} per {lot.unit_type}.{" "}
+              {sameUnit
+                ? "The share follows the quantity, and the cost follows the share, until you type over them."
+                : `Enter the ${lot.unit_type} these pieces account for and the cost fills in — or type the cost directly.`}
+            </p>
+          )}
           <p className="text-xs text-gray-500">
             {Number.isNaN(perUnit)
               ? "Cost per unit follows from the cost and quantity."
@@ -347,7 +361,11 @@ export default function LotSpecifyModal({ lot, items, onClose, onCreated, onErro
             Generate visual from name
           </label>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && (
+            <p role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
+          )}
 
           <div className="flex justify-end gap-2 pt-1">
             <button

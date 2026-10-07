@@ -451,12 +451,20 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
           {!generic && (
             <label
               className="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer"
-              title="An unsorted assortment (a bag of mixed beads, a parcel of uncounted stones): never placed on the board itself; what it held is specified as separate materials"
+              title={
+                material.lot_id
+                  ? "This material was specified out of a lot, so it can't be one itself"
+                  : lotItems.length > 0
+                    ? `${lotItems.length} material${lotItems.length === 1 ? " was" : "s were"} specified from this lot — delete or re-link those first`
+                    : "An unsorted assortment (a bag of mixed beads, a parcel of uncounted stones): never placed on the board itself; what it held is specified as separate materials"
+              }
             >
               <input
                 type="checkbox"
                 checked={form.is_lot}
-                disabled={busy}
+                // A row can't be both a lot and something specified out of
+                // one, and un-lotting would orphan the items pointing here.
+                disabled={busy || !!material.lot_id || (material.is_lot && lotItems.length > 0)}
                 onChange={(e) => setDraft({ is_lot: e.target.checked })}
                 className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
               />

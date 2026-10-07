@@ -64,7 +64,9 @@ import {
   type FoldCenter,
   type Side,
 } from "@/lib/mirror";
-import { presentCategories, type Design, type DesignBead, type Material } from "@/lib/types";
+import { presentCategories, type Design, type DesignBead, type Material,
+  PLACEABLE_CATEGORIES,
+} from "@/lib/types";
 
 const MM_PER_INCH = 25.4;
 // CSS reference pixel: 96px per inch, so this renders beads at ~life size.
@@ -91,10 +93,6 @@ const LENGTH_PRESETS: { in: number; label?: string }[] = [
   { in: 36, label: "rope" },
 ];
 const VISUALS_BATCH = 60;
-// Categories whose items can sit on a strand and belong in the palette.
-// Wire/cord/tools stay inventory-only. Anything else with a generated visual
-// (e.g. a chain filed under Stringing) is also placeable.
-const PLACEABLE_CATEGORIES = new Set(["Beads", "Cabochons", "Findings"]);
 // Working-copy draft persisted to localStorage so navigation, reloads, and
 // tab closes can't lose unsaved strand work.
 const DRAFT_KEY = "design-board-draft";
@@ -447,11 +445,13 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // the strand stay reachable automatically, and pinning keeps one around after
   // it leaves the strand. Both ignore the search and filters, so switching
   // between a few beads no longer means re-searching for each one.
+  // A row marked as a lot after it was placed or pinned (GRA-36) drops out:
+  // the bag itself is never something to build with.
   const workingSet = useMemo(() => {
     const ids = [...strandCounts.keys(), ...pinned.filter((id) => !strandCounts.has(id))];
     return ids
       .map((id) => materialById.get(id))
-      .filter((m): m is Material => m !== undefined);
+      .filter((m): m is Material => m !== undefined && !isLot(m));
   }, [strandCounts, pinned, materialById]);
 
   const workingSetIds = useMemo(
@@ -499,8 +499,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     const issues: { name: string; need: number; have: number }[] = [];
     for (const [id, need] of strandCounts) {
       const m = materialById.get(id);
-      // Generics aren't stock-tracked: their quantity is a placeholder 0.
-      if (m && !isGeneric(m) && need > m.quantity) {
+      // Generics aren't stock-tracked: their quantity is a placeholder 0. A
+      // lot's quantity is the parcel as sold (300 carat), not a bead count.
+      if (m && !isGeneric(m) && !isLot(m) && need > m.quantity) {
         issues.push({ name: m.name, need, have: m.quantity });
       }
     }

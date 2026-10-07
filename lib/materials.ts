@@ -238,7 +238,9 @@ export async function importMaterials(
           quantity,
           order_id: orderId,
           source: row.source ?? null,
-          is_lot: row.is_lot ?? false,
+          // Like the visual below, a lot flag the owner set by hand outranks
+          // a re-extraction that didn't recognize the line as a lot.
+          ...(row.is_lot ? { is_lot: true } : {}),
           // Keep a visual the user may have refined (photo, drill) over a
           // freshly extracted one.
             ...(match.visual ? {} : { visual: row.visual ?? null }),
