@@ -24,7 +24,7 @@ import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
 import { listOrders } from "@/lib/orders";
 import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
 import { isGeneric } from "@/lib/generic-catalog";
-import { isFromLot, isLot, lotAllocation } from "@/lib/lots";
+import { isFromLot, isLot, lotAllocation, lotPrice } from "@/lib/lots";
 import GenericBadge from "@/components/GenericBadge";
 import {
   CATEGORIES,
@@ -167,7 +167,12 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
   const handleAdd = () =>
     run(async () => {
       if (!addForm.name.trim()) throw new Error("Material name is required");
-      await addMaterials([{ ...addForm, name: addForm.name.trim() }]);
+      // For a lot the cost box holds the whole parcel's price; spread it
+      // over the size so quantity × unit_cost stays what was paid.
+      const lot = !!addForm.is_lot;
+      const quantity = lot && !(addForm.quantity > 0) ? 1 : addForm.quantity;
+      const unit_cost = lot ? addForm.unit_cost / quantity : addForm.unit_cost;
+      await addMaterials([{ ...addForm, name: addForm.name.trim(), quantity, unit_cost }]);
       setAddForm(EMPTY_FORM);
       setShowAddForm(false);
     });
@@ -353,7 +358,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
             type="number"
             step="0.01"
             min="0"
-            placeholder="Cost per unit"
+            placeholder={addForm.is_lot ? "Lot price (whole parcel)" : "Cost per unit"}
             value={addForm.unit_cost || ""}
             onChange={(e) =>
               setAddForm({ ...addForm, unit_cost: parseFloat(e.target.value) || 0 })
@@ -364,7 +369,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
             type="number"
             step="1"
             min="0"
-            placeholder="In stock"
+            placeholder={addForm.is_lot ? "Lot size (e.g. 300 carat, 1 lot)" : "In stock"}
             value={addForm.quantity || ""}
             onChange={(e) =>
               setAddForm({ ...addForm, quantity: parseFloat(e.target.value) || 0 })
@@ -388,7 +393,7 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
               onChange={(e) => setAddForm({ ...addForm, is_lot: e.target.checked })}
               className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
             />
-            This is a lot (unsorted assortment — stock is the parcel size as sold)
+            This is a lot (unsorted assortment — enter the parcel's whole price and its size as sold)
           </label>
         </div>
       )}
@@ -483,8 +488,17 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 {material.category}
               </div>
               <div className="col-span-4 md:col-span-1 text-xs md:text-sm text-gray-900">
-                ${material.unit_cost.toFixed(2)}
-                <span className="md:hidden text-gray-500">/{material.unit_type}</span>
+                {isLot(material) ? (
+                  <span title={`$${material.unit_cost.toFixed(4)} per ${material.unit_type}`}>
+                    ${lotPrice(material).toFixed(2)}
+                    <span className="text-gray-500">/lot</span>
+                  </span>
+                ) : (
+                  <>
+                    ${material.unit_cost.toFixed(2)}
+                    <span className="md:hidden text-gray-500">/{material.unit_type}</span>
+                  </>
+                )}
               </div>
               <div className="hidden md:block col-span-1 text-sm text-gray-600">
                 {material.unit_type}

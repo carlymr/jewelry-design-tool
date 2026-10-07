@@ -333,7 +333,7 @@ export default function LotSpecifyModal({ lot, items, onClose, onCreated, onErro
               The lot is priced at {money(unitCost)} per {lot.unit_type}.{" "}
               {sameUnit
                 ? "The share follows the quantity, and the cost follows the share, until you type over them."
-                : `Enter the ${lot.unit_type} these pieces account for and the cost fills in — or type the cost directly.`}
+                : `Enter the ${lot.unit_type} these pieces account for and the cost fills in, or type the cost directly. Can't measure ${lot.unit_type}? Resize the lot in pieces from its pencil (the price stays) and the share will follow the quantity.`}
             </p>
           )}
           <p className="text-xs text-gray-500">

@@ -18,7 +18,7 @@ import {
   type CabOutline,
 } from "@/lib/bead-visual";
 import { isGeneric } from "@/lib/generic-catalog";
-import { isLot, lotPrice } from "@/lib/lots";
+import { isLot, lotPrice, toCents } from "@/lib/lots";
 import { CATEGORIES, type Material, type Order } from "@/lib/types";
 
 // The one place a material's details are viewed and edited — opened from the
@@ -102,6 +102,10 @@ interface Draft {
   outline: CabOutline | "";
   /** An unsorted assortment whose contents are specified as other rows. */
   is_lot: boolean;
+  /** Lots only: what the whole parcel cost. The price is what the owner
+   * knows; unit_cost is derived from it on save, so resizing a parcel
+   * (100 carat → 3 pieces) keeps what was paid instead of the old rate. */
+  lot_price: string;
 }
 
 interface Props {
@@ -126,6 +130,7 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
     drill: material.visual?.drill ?? "",
     outline: material.visual?.outline ?? "",
     is_lot: material.is_lot,
+    lot_price: lotPrice(material).toFixed(2),
   });
   const [regenVisual, setRegenVisual] = useState(false);
   const regenTouched = useRef(false);
@@ -193,14 +198,24 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
     try {
       const name = form.name.trim();
       if (!name) throw new Error("Material name is required");
-      const unit_cost = parseFloat(form.unit_cost);
-      if (Number.isNaN(unit_cost) || unit_cost < 0) {
-        throw new Error("Cost must be a non-negative number");
-      }
       // Generics carry no stock: leave their placeholder quantity alone.
       const quantity = generic ? null : parseFloat(form.quantity);
       if (quantity !== null && (Number.isNaN(quantity) || quantity < 0)) {
-        throw new Error("Stock must be a non-negative number");
+        throw new Error(`${lot ? "Lot size" : "Stock"} must be a non-negative number`);
+      }
+      let unit_cost: number;
+      if (lot) {
+        const price = parseFloat(form.lot_price);
+        if (Number.isNaN(price) || price < 0) {
+          throw new Error("Lot price must be a non-negative number");
+        }
+        if (!(quantity! > 0)) throw new Error("A lot's size must be positive");
+        unit_cost = price / quantity!;
+      } else {
+        unit_cost = parseFloat(form.unit_cost);
+        if (Number.isNaN(unit_cost) || unit_cost < 0) {
+          throw new Error("Cost must be a non-negative number");
+        }
       }
       await updateMaterial(material.id, {
         name,
@@ -365,18 +380,42 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                 ))}
               </select>
             </label>
-            <label className="block text-xs text-gray-600">
-              Cost per unit ($)
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.unit_cost}
-                onChange={(e) => setDraft({ unit_cost: e.target.value })}
-                disabled={busy}
-                className={`${fieldClass} mt-1`}
-              />
-            </label>
+            {lot ? (
+              <label className="block text-xs text-gray-600">
+                Lot price ($, whole parcel)
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.lot_price}
+                  onChange={(e) => setDraft({ lot_price: e.target.value })}
+                  disabled={busy}
+                  className={`${fieldClass} mt-1`}
+                />
+                <span className="block mt-0.5 text-gray-500">
+                  {(() => {
+                    const price = parseFloat(form.lot_price);
+                    const qty = parseFloat(form.quantity);
+                    return price >= 0 && qty > 0
+                      ? `= $${(price / qty).toFixed(4)} per ${form.unit_type.trim() || "unit"}`
+                      : "Per-unit cost follows from the price and size.";
+                  })()}
+                </span>
+              </label>
+            ) : (
+              <label className="block text-xs text-gray-600">
+                Cost per unit ($)
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.unit_cost}
+                  onChange={(e) => setDraft({ unit_cost: e.target.value })}
+                  disabled={busy}
+                  className={`${fieldClass} mt-1`}
+                />
+              </label>
+            )}
             <label className="block text-xs text-gray-600">
               Unit
               <input
@@ -465,7 +504,21 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                 // A row can't be both a lot and something specified out of
                 // one, and un-lotting would orphan the items pointing here.
                 disabled={busy || !!material.lot_id || (material.is_lot && lotItems.length > 0)}
-                onChange={(e) => setDraft({ is_lot: e.target.checked })}
+                onChange={(e) => {
+                  // Carry the figure across: the row's current total becomes
+                  // the lot price, or the lot price spreads back over units.
+                  const qty = parseFloat(form.quantity);
+                  const cost = parseFloat(form.unit_cost);
+                  const price = parseFloat(form.lot_price);
+                  setDraft({
+                    is_lot: e.target.checked,
+                    ...(e.target.checked
+                      ? { lot_price: (qty >= 0 && cost >= 0 ? toCents(qty * cost) : 0).toFixed(2) }
+                      : qty > 0 && price >= 0
+                        ? { unit_cost: String(price / qty) }
+                        : {}),
+                  });
+                }}
                 className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
               />
               This is a lot — stock above is the parcel size as sold
