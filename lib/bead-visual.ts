@@ -208,13 +208,16 @@ export function normalizeOrientation<V extends BeadVisual>(visual: V): V {
   return visual;
 }
 
+/** A millimeter value trimmed for display: 25.4 stays, 4.0 reads "4". */
+export const fmtMm = (n: number) => String(Number(n.toFixed(2)));
+
 /** Human-readable size, "4 × 2 mm" (across × along the strand for beads, so it
  * reads like a seller's listing; long × short for pendants, where the long
  * axis hangs). Cabochons and bezels store the long face dimension in
  * `length_mm`, so the two orders coincide with "bigger number first". */
 export function formatSizeMm(visual: BeadVisual | null | undefined): string | null {
   if (!visual) return null;
-  const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, ""));
+  const fmt = fmtMm;
   if (visual.shape === "chain") return `${fmt(visual.width_mm)} mm links, 1" per element`;
   if (visual.length_mm === visual.width_mm) return `${fmt(visual.width_mm)} mm`;
   if (hasOutline(visual)) return `${fmt(visual.length_mm)} × ${fmt(visual.width_mm)} mm`;

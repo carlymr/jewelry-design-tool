@@ -12,6 +12,7 @@ import {
   DRILL_LABELS,
   CAB_OUTLINES,
   CAB_OUTLINE_LABELS,
+  fmtMm,
   formatSizeMm,
   hasOutline,
   type DrillType,
@@ -96,8 +97,8 @@ interface Draft {
   width_mm: string;
 }
 
-/** Trim a stored mm value for an input: 25.4 stays, 4.0 reads "4". */
-const mmText = (n: number | undefined) => (n == null ? "" : String(Number(n.toFixed(2))));
+/** A stored mm value as input text — same trimming as the caption above it. */
+const mmText = (n: number | undefined) => (n == null ? "" : fmtMm(n));
 
 /** Field labels for the two axes, by what the shape stores in them. */
 function sizeLabels(shape: string | undefined): { length: string; width: string } {
@@ -191,17 +192,9 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
       if (quantity !== null && (Number.isNaN(quantity) || quantity < 0)) {
         throw new Error("Stock must be a non-negative number");
       }
-      await updateMaterial(material.id, {
-        name,
-        category: form.category,
-        unit_cost,
-        unit_type: form.unit_type.trim() || "piece",
-        ...(quantity === null ? {} : { quantity }),
-      });
-      const drill: DrillType | null = form.drill || null;
-      const outline: CabOutline | null = form.outline || null;
       // Size (GRA-46): only validated when the owner edited it, so a row with
-      // an odd stored value can still have its other fields saved.
+      // an odd stored value can still have its other fields saved. Checked
+      // before anything is written so a rejected size leaves the row untouched.
       const prior = material.visual;
       let size: { length_mm: number; width_mm: number } | null = null;
       if (sizeTouched.current && prior) {
@@ -212,6 +205,15 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
         }
         size = { length_mm, width_mm };
       }
+      await updateMaterial(material.id, {
+        name,
+        category: form.category,
+        unit_cost,
+        unit_type: form.unit_type.trim() || "piece",
+        ...(quantity === null ? {} : { quantity }),
+      });
+      const drill: DrillType | null = form.drill || null;
+      const outline: CabOutline | null = form.outline || null;
       let regenError: string | null = null;
       let visualWritten = false;
       if (regenVisual) {
@@ -220,11 +222,13 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
           if (visual) {
             // drill only belongs on cabochons and outline on cabochons and
             // bezels; a value the user actually set outranks the model's
-            // guess, an untouched select doesn't. Same for a typed size —
-            // except chain, whose per-element length is fixed.
+            // guess, an untouched select doesn't. Same for a typed size, but
+            // only if the shape didn't change — the numbers were entered
+            // against the old shape's axes (and a chain's fixed 25.4 must not
+            // follow it onto a bead).
             const next = {
               ...visual,
-              ...(size && visual.shape !== "chain" ? size : {}),
+              ...(size && prior && visual.shape === prior.shape ? size : {}),
               drill:
                 visual.shape !== "cabochon" ? null : drillTouched.current ? drill : visual.drill,
               outline: !hasOutline(visual)
@@ -410,51 +414,59 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
               </label>
             )}
             {material.visual && (
-              <div className="col-span-2 flex items-end gap-2">
-                <label className="block text-xs text-gray-600 flex-1">
-                  {labels.length}
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={form.length_mm}
-                    onChange={(e) => {
+              <div className="col-span-2">
+                <div className="flex items-end gap-2">
+                  <label className="block text-xs text-gray-600 flex-1">
+                    {labels.width}
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={form.width_mm}
+                      onChange={(e) => {
+                        sizeTouched.current = true;
+                        setDraft({ width_mm: e.target.value });
+                      }}
+                      disabled={busy}
+                      className={`${fieldClass} mt-1`}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
                       sizeTouched.current = true;
-                      setDraft({ length_mm: e.target.value });
+                      setDraft({ length_mm: form.width_mm, width_mm: form.length_mm });
                     }}
                     disabled={busy || fixedLength}
-                    title={fixedLength ? "A placed chain element is always a 1-inch segment" : undefined}
-                    className={`${fieldClass} mt-1`}
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sizeTouched.current = true;
-                    setDraft({ length_mm: form.width_mm, width_mm: form.length_mm });
-                  }}
-                  disabled={busy || fixedLength}
-                  className="p-1.5 mb-0.5 text-gray-400 hover:text-purple-600 disabled:opacity-40 shrink-0"
-                  title="Swap the two axes — for a bead drawn turned the wrong way"
-                  aria-label="Swap length and width"
-                >
-                  <ArrowLeftRight className="w-4 h-4" />
-                </button>
-                <label className="block text-xs text-gray-600 flex-1">
-                  {labels.width}
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={form.width_mm}
-                    onChange={(e) => {
-                      sizeTouched.current = true;
-                      setDraft({ width_mm: e.target.value });
-                    }}
-                    disabled={busy}
-                    className={`${fieldClass} mt-1`}
-                  />
-                </label>
+                    className="p-1.5 mb-0.5 text-gray-400 hover:text-purple-600 disabled:opacity-40 shrink-0"
+                    title={`Swap ${labels.width.toLowerCase()} and ${labels.length.toLowerCase()}`}
+                    aria-label={`Swap ${labels.width} and ${labels.length}`}
+                  >
+                    <ArrowLeftRight className="w-4 h-4" />
+                  </button>
+                  <label className="block text-xs text-gray-600 flex-1">
+                    {labels.length}
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={form.length_mm}
+                      onChange={(e) => {
+                        sizeTouched.current = true;
+                        setDraft({ length_mm: e.target.value });
+                      }}
+                      disabled={busy || fixedLength}
+                      className={`${fieldClass} mt-1`}
+                    />
+                  </label>
+                </div>
+                <p className="mt-1 text-[11px] text-gray-500">
+                  {fixedLength
+                    ? "A placed chain element is always a 1-inch segment; only the link width is drawn."
+                    : hasOutline(material.visual)
+                      ? "Length is the long axis, which hangs vertically."
+                      : "“Along strand” is the direction the string passes through. If the bead is drawn turned the wrong way, swap the two."}
+                </p>
               </div>
             )}
             {material.visual?.shape === "cabochon" && (
