@@ -19,7 +19,7 @@ import PhotoVisualButton from "@/components/PhotoVisualButton";
 import MaterialDetailModal, { SourcePanel } from "@/components/MaterialDetail";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
 import { listOrders } from "@/lib/orders";
-import { colorFamilyOf, sizeBucketOf } from "@/lib/bead-visual";
+import { colorFamilyOf, formatSizeMm, sizeBucketOf } from "@/lib/bead-visual";
 import { isGeneric } from "@/lib/generic-catalog";
 import GenericBadge from "@/components/GenericBadge";
 import {
@@ -429,7 +429,10 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
               className="grid grid-cols-12 gap-x-3 gap-y-1 p-3 border-b border-gray-100 hover:bg-gray-50 last:border-b-0 items-center"
             >
               <div className="col-span-12 md:col-span-4 text-sm text-gray-900 flex items-center gap-2 min-w-0">
-                <span className="w-6 flex justify-center shrink-0">
+                <span
+                  className="w-6 flex justify-center shrink-0"
+                  title={formatSizeMm(material.visual) ?? undefined}
+                >
                   {material.visual && (
                     <BeadSwatch visual={material.visual} size={22} seed={material.id} />
                   )}

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { BeadVisualSchema } from "@/lib/bead-visual";
+import { BeadVisualSchema, normalizeOrientation } from "@/lib/bead-visual";
 import { getSupabaseConfig } from "@/lib/supabase-config";
 import { authorizedUser, isOwnUpload } from "@/lib/api-token";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -322,6 +322,7 @@ export async function POST(request: NextRequest) {
       items: parsed.items.map((item) => ({
         ...item,
         category: normalizeCategory(item.category),
+        visual: item.visual ? normalizeOrientation(item.visual) : item.visual,
       })),
     });
   } catch (error) {

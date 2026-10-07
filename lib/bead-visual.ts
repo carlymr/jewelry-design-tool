@@ -138,7 +138,7 @@ export const BeadVisualSchema = z.object({
   length_mm: z
     .number()
     .describe(
-      "Size in mm along the stringing-hole axis — how far one element advances a strand. For an 8x4mm rondelle this is 4; for an 8mm round bead it is 8. For 'chain' always use 25.4: one placed element represents a 1-inch segment."
+      "Size in mm along the stringing-hole axis — how far one element advances a strand. For an 8x4mm rondelle this is 4; for an 8mm round bead it is 8. Sellers write 'AxB mm' in either order, so decide by shape, not position: rondelles, heishi, arrow (chevron) beads, flower beads and seed beads are drilled through their thin dimension, so length_mm is the SMALLER number (a '1x3mm arrow' is length 1, width 3); tubes and bicones are drilled lengthwise, so length_mm is the larger. For 'chain' always use 25.4: one placed element represents a 1-inch segment."
     ),
   width_mm: z
     .number()
@@ -186,6 +186,43 @@ export const BeadVisualSchema = z.object({
 });
 
 export type BeadVisual = z.infer<typeof BeadVisualSchema>;
+
+/** Shapes drilled through their thin dimension — discs and chevrons that
+ * stack face to face on the wire — so `length_mm` (along the hole) can never
+ * be the larger number. Deliberately only the unambiguous cases: a tube or
+ * bicone is usually drilled lengthwise but a flat bar can be drilled across,
+ * and a teardrop hangs or strings depending on where the hole is. */
+export const HOLE_THROUGH_THIN_AXIS: ReadonlySet<BeadVisual["shape"]> = new Set<
+  BeadVisual["shape"]
+>(["rondelle", "heishi", "arrow", "flower", "seed"]);
+
+/** Fix a model-generated visual whose "AxB" size landed on the wrong axes
+ * (GRA-47): sellers write the two numbers in either order, so for shapes
+ * where the hole provably runs through the thin dimension the smaller one
+ * is forced along the strand. Applied to every visual the AI routes return;
+ * never to a size the owner typed, which is taken as given. */
+export function normalizeOrientation<V extends BeadVisual>(visual: V): V {
+  if (HOLE_THROUGH_THIN_AXIS.has(visual.shape) && visual.length_mm > visual.width_mm) {
+    return { ...visual, length_mm: visual.width_mm, width_mm: visual.length_mm };
+  }
+  return visual;
+}
+
+/** A millimeter value trimmed for display: 25.4 stays, 4.0 reads "4". */
+export const fmtMm = (n: number) => String(Number(n.toFixed(2)));
+
+/** Human-readable size, "4 × 2 mm" (across × along the strand for beads, so it
+ * reads like a seller's listing; long × short for pendants, where the long
+ * axis hangs). Cabochons and bezels store the long face dimension in
+ * `length_mm`, so the two orders coincide with "bigger number first". */
+export function formatSizeMm(visual: BeadVisual | null | undefined): string | null {
+  if (!visual) return null;
+  const fmt = fmtMm;
+  if (visual.shape === "chain") return `${fmt(visual.width_mm)} mm links, 1" per element`;
+  if (visual.length_mm === visual.width_mm) return `${fmt(visual.width_mm)} mm`;
+  if (hasOutline(visual)) return `${fmt(visual.length_mm)} × ${fmt(visual.width_mm)} mm`;
+  return `${fmt(visual.width_mm)} × ${fmt(visual.length_mm)} mm`;
+}
 
 function hexToHsl(hex: string): [number, number, number] {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
