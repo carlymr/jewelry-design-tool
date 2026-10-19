@@ -85,6 +85,35 @@ export function mirroredDelete(
   return { beads: next, insertion };
 }
 
+/**
+ * Move the inclusive block [start, end] to `gap` (a gap of the strand as it
+ * stands) and its reflection to the reflected place, as one edit: the
+ * mirrored delete followed by the mirrored insert. The drop gap is counted
+ * in the surviving beads, so a drop inside the reflected block lands at its
+ * edge. Returns where the user's copy now starts, or null when the block
+ * overlaps its own reflection (it holds or straddles the axis): moving the
+ * center off-center can't stay symmetric, so the caller moves it plainly.
+ */
+export function mirroredMove(
+  beads: DesignBead[],
+  start: number,
+  end: number,
+  gap: number
+): { beads: DesignBead[]; start: number } | null {
+  const n = beads.length;
+  if (reflectIndex(end, n) <= end && reflectIndex(start, n) >= start) return null;
+  const block = beads.slice(start, end + 1);
+  const rStart = reflectIndex(end, n);
+  const rEnd = reflectIndex(start, n);
+  let removedBefore = 0;
+  for (let i = 0; i < Math.min(gap, n); i++) {
+    if ((i >= start && i <= end) || (i >= rStart && i <= rEnd)) removedBefore++;
+  }
+  const rest = mirroredDelete(beads, start, end).beads;
+  const placed = mirroredInsert(rest, gap - removedBefore, block);
+  return { beads: placed.beads, start: placed.insertion - block.length };
+}
+
 /** A center to fold around: the half-open range of elements that stay put
  * (the pendant, say), or an empty range at a gap to fold at that gap. */
 export type FoldCenter = { start: number; end: number };
