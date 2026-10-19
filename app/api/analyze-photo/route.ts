@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { BeadVisualSchema } from "@/lib/bead-visual";
+import { BeadVisualSchema, normalizeOrientation } from "@/lib/bead-visual";
 import { getSupabaseConfig } from "@/lib/supabase-config";
 import { authorizedUser, isOwnUpload } from "@/lib/api-token";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json(parsed);
+    return NextResponse.json({ ...parsed, visual: normalizeOrientation(parsed.visual) });
   } catch (error) {
     if (error instanceof Anthropic.RateLimitError) {
       return NextResponse.json(
