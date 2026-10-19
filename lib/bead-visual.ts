@@ -183,21 +183,32 @@ export const BeadVisualSchema = z.object({
     .describe(
       "Cabochons and bezel settings only (null for everything else). Face outline of the stone, or of the recess a setting fits: 'oval' covers round and oval (the dimensions decide), 'rectangle' covers square/cushion/bar, 'teardrop' covers pear, 'marquise' for pointed-both-ends navettes, 'stalactite' for stalactite/agate slices (lumpy outline with concentric rings), 'trapiche' for trapiche slices (round-to-hexagonal with six radial spokes), 'freeform' for irregular cuts. Read it from a shape word in the name or the photo; null when unknown (drawn as oval)."
     ),
-  hang: z
-    .enum(["vertical", "horizontal"])
+  turn: z
+    .number()
     .nullable()
     .describe(
-      "Cabochons only (null for everything else). How the stone hangs on the strand: 'vertical' = its length_mm runs up and down; 'horizontal' = its length_mm runs across the string. Null means vertical. Leave null unless the photo clearly shows the stone set the other way."
+      "Cabochons only (null for everything else). Degrees the stone is turned clockwise on the strand, in steps of 90: 0, 90, 180 or 270. Null means 90 (length up and down). Leave null; the owner sets it."
     ),
 });
 
 export type BeadVisual = z.infer<typeof BeadVisualSchema>;
 
-/** Degrees the pendant drawing is turned on the board. A stone hangs with its
- * stored length running vertically unless it is explicitly set horizontal;
- * the length is never inferred from the size. */
-export function pendantTurn(visual: BeadVisual): 0 | 90 {
-  return visual.hang === "horizontal" ? 0 : 90;
+export type StoneTurn = 0 | 90 | 180 | 270;
+
+/** Degrees a cabochon is turned clockwise on the strand. Unset means 90, the
+ * stored length running up and down, as cabochons have always hung. */
+export function stoneTurn(visual: BeadVisual): StoneTurn {
+  if (typeof visual.turn !== "number") return 90;
+  const quarters = Math.round(visual.turn / 90);
+  return (((quarters % 4) + 4) % 4) * 90 as StoneTurn;
+}
+
+/** Whether a cabochon hangs on the string and so turns with `stoneTurn`. A
+ * center-drilled stone strings through its hole like a bead, and its length
+ * runs along the string, so it is never turned. A stone set in a bezel always
+ * hangs. */
+export function turnsOnString(visual: BeadVisual, setting?: unknown): boolean {
+  return visual.shape === "cabochon" && (!!setting || pendantAttachment(visual) !== "inline");
 }
 
 /** Shapes drilled through their thin dimension — discs and chevrons that

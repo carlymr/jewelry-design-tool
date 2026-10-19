@@ -1,7 +1,12 @@
 "use client";
 
 import { memo, useId } from "react";
-import type { BeadVisual, CabOutline } from "@/lib/bead-visual";
+import {
+  stoneTurn,
+  turnsOnString,
+  type BeadVisual,
+  type CabOutline,
+} from "@/lib/bead-visual";
 import { alignedRecessMm } from "@/lib/bezel-fit";
 import type { FaceImage } from "@/lib/material-faces";
 
@@ -803,8 +808,13 @@ export default function BeadSwatch({
   const box = composed
     ? settingBoxPx(composed, pxPerMm, visual)
     : { L: visual.length_mm * pxPerMm, W: visual.width_mm * pxPerMm };
-  const w = Math.max(2, box.L);
-  const h = Math.max(2, box.W);
+  // A hanging cabochon is drawn turned as the board places it, so the preview
+  // matches the strand. A quarter or three-quarter turn swaps the footprint's
+  // width and height. The face photo is turned back by the same amount.
+  const turn = turnsOnString(visual, composed) ? stoneTurn(visual) : 0;
+  const swapped = turn % 180 !== 0;
+  const w = Math.max(2, swapped ? box.W : box.L);
+  const h = Math.max(2, swapped ? box.L : box.W);
   return (
     <svg
       width={w}
@@ -813,7 +823,17 @@ export default function BeadSwatch({
       className={className}
       overflow="visible"
     >
-      <Bead visual={visual} pxPerMm={pxPerMm} seed={seed} setting={composed} face={face} />
+      <g
+        transform={`translate(${w / 2} ${h / 2}) rotate(${turn}) translate(${-box.L / 2} ${-box.W / 2})`}
+      >
+        <Bead
+          visual={visual}
+          pxPerMm={pxPerMm}
+          seed={seed}
+          setting={composed}
+          face={face ? { ...face, rotation: face.rotation - turn } : null}
+        />
+      </g>
     </svg>
   );
 }

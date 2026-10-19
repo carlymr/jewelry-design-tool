@@ -40,7 +40,7 @@ import {
 } from "@/lib/designs";
 import {
   pendantAttachment,
-  pendantTurn,
+  stoneTurn,
   colorFamilyOf,
   formatSizeMm,
   sizeBucketOf,
@@ -1087,8 +1087,16 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     ...strand.placed.map((p) => {
       const v = p.material?.visual;
       if (!v) return 0;
-      if (p.setting?.visual) return settingBoxPx(p.setting.visual, 1, v).L;
-      return isPendant(v) ? (hasBail(v) ? CABOCHON_BAIL_MM : 0) + v.length_mm : 0;
+      // The drop is the stone's length when it is turned to hang vertically,
+      // otherwise its width (see the pendant branch of the strand).
+      const vertical = stoneTurn(v) % 180 !== 0;
+      if (p.setting?.visual) {
+        const box = settingBoxPx(p.setting.visual, 1, v);
+        return vertical ? box.L : box.W;
+      }
+      return isPendant(v)
+        ? (hasBail(v) ? CABOCHON_BAIL_MM : 0) + (vertical ? v.length_mm : v.width_mm)
+        : 0;
     })
   );
   const rulerHeight = 34;
@@ -1666,11 +1674,12 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 const box = setting
                   ? settingBoxPx(setting, pxPerMm, visual)
                   : { L: visual.length_mm * pxPerMm, W: visual.width_mm * pxPerMm };
-                // The stone's stored length runs down or across the string,
-                // as its hang says; the drop and the span follow from that.
-                const turn = pendantTurn(visual);
-                const stoneL = turn === 90 ? box.L : box.W;
-                const stoneW = turn === 90 ? box.W : box.L;
+                // The stone is turned as its stored turn says; a quarter or
+                // three-quarter turn puts its length across the drop instead.
+                const turn = stoneTurn(visual);
+                const vertical = turn % 180 !== 0;
+                const stoneL = vertical ? box.L : box.W;
+                const stoneW = vertical ? box.W : box.L;
                 const bail = !setting && hasBail(visual);
                 const bailR = bail ? (CABOCHON_BAIL_MM / 2) * pxPerMm : 0;
                 // Undrilled (or unrecorded) stones have no hardware yet — a
@@ -1719,9 +1728,9 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                         strokeDasharray={bailDash ? `${bailR * 0.7} ${bailR * 0.5}` : undefined}
                       />
                     )}
-                    {/* Centered on the drop: the drawing is turned as its hang
-                        says, and its face photo turned back by the same amount
-                        so the photo reads as it was taken. */}
+                    {/* Centered on the drop: the drawing is turned by the
+                        stone's stored turn, and its face photo turned back by
+                        the same amount so the photo reads as it was taken. */}
                     <g
                       transform={`translate(0, ${stoneTop + stoneL / 2}) rotate(${turn}) translate(${-box.L / 2}, ${-box.W / 2})`}
                     >
