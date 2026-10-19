@@ -207,6 +207,14 @@ export function stoneTurn(visual: BeadVisual): StoneTurn {
   return legacy.hang === "horizontal" ? 0 : 90;
 }
 
+/** Whether a cabochon hangs on the string and so turns with `stoneTurn`. A
+ * center-drilled stone strings through its hole like a bead, and its length
+ * runs along the string, so it is never turned. A stone set in a bezel always
+ * hangs. */
+export function turnsOnString(visual: BeadVisual, setting?: unknown): boolean {
+  return visual.shape === "cabochon" && (!!setting || pendantAttachment(visual) !== "inline");
+}
+
 /** Shapes drilled through their thin dimension — discs and chevrons that
  * stack face to face on the wire — so `length_mm` (along the hole) can never
  * be the larger number. Deliberately only the unambiguous cases: a tube or

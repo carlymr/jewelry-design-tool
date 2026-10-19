@@ -25,6 +25,7 @@ import {
   formatSizeMm,
   hasOutline,
   stoneTurn,
+  turnsOnString,
   type StoneTurn,
   type DrillType,
   type CabOutline,
@@ -285,6 +286,12 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const faceUrls = useFaceUrls([material.face_path]);
+  // Focus the dialog rather than a field: a field would bring up the keyboard
+  // on mobile, but keyboard users still need focus to start inside the dialog.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, []);
   const generic = isGeneric(material);
   // The draft's flag, not the row's: relabeling happens as the box is ticked.
   const lot = form.is_lot;
@@ -450,6 +457,8 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
 
   return (
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
       role="dialog"
       aria-modal="true"
@@ -639,8 +648,8 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                       className={`${fieldClass} mt-1`}
                     />
                   </label>
-                  {/* Cabochons turn on the string instead; see Turned on the string. */}
-                  {material.visual?.shape !== "cabochon" && (
+                  {/* A hanging cabochon turns on the string instead; see Turned on the string. */}
+                  {!(material.visual && turnsOnString(material.visual)) && (
                   <button
                     type="button"
                     onClick={() => {
@@ -675,9 +684,11 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                   {fixedLength
                     ? "A placed chain element is always a 1-inch segment; only the link width is drawn."
                     : hasOutline(material.visual)
-                      ? material.visual?.shape === "cabochon"
-                        ? "Length and width are its stored size. Turned on the string sets which way it hangs."
-                        : "Length is the long axis, which hangs vertically."
+                      ? material.visual && turnsOnString(material.visual)
+                        ? "Enter the stone's length (long side) and width. To change which way it hangs, use Turned on the string below. Turning it doesn't change these numbers."
+                        : material.visual?.shape === "cabochon"
+                          ? "The length runs along the string through the hole. If it was entered the wrong way, swap the two."
+                          : "Length is the long axis, which hangs vertically."
                       : "“Along strand” is the direction the string passes through. If the bead is drawn turned the wrong way, swap the two."}
                 </p>
               </div>
@@ -703,7 +714,7 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                 </select>
               </label>
             )}
-            {material.visual?.shape === "cabochon" && (
+            {material.visual && turnsOnString(material.visual) && (
               <label className="block text-xs text-gray-600">
                 Turned on the string
                 <select
@@ -725,8 +736,8 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                 >
                   <option value={0}>0° — length across the string</option>
                   <option value={90}>90° — length up and down (default)</option>
-                  <option value={180}>180° — upside down</option>
-                  <option value={270}>270° — upside down, the other way</option>
+                  <option value={180}>180° — length across, flipped over</option>
+                  <option value={270}>270° — length up and down, flipped over</option>
                 </select>
               </label>
             )}
