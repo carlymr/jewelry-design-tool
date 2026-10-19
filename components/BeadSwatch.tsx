@@ -3,6 +3,7 @@
 import { memo, useId } from "react";
 import type { BeadVisual, CabOutline } from "@/lib/bead-visual";
 import { alignedRecessMm } from "@/lib/bezel-fit";
+import type { FaceImage } from "@/lib/material-faces";
 
 // Renders a bead from its stored visual spec. `Bead` is an SVG <g> at the
 // origin (for composing into the strand SVG); `BeadSwatch` wraps it in a
@@ -523,9 +524,9 @@ interface BeadProps {
    * element the size of `settingBoxPx`, stone centered in the recess.
    * Ignored unless `visual` is a cabochon. */
   setting?: BeadVisual | null;
-  /** Display URL of a cabochon's face photo (GRA-15). When set it replaces
-   * the generated pattern, clipped to the outline. Ignored for other shapes. */
-  face?: string | null;
+  /** A cabochon's face photo (GRA-15). When set it replaces the generated
+   * pattern, clipped to the outline. Ignored for other shapes. */
+  face?: FaceImage | null;
 }
 
 /** The bead itself, as a <g> with its top-left at the origin. Memoized so
@@ -537,7 +538,7 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead", setting
   const c = visual.color;
   const gradId = `bg-${uid}`;
   const clipId = `bc-${uid}`;
-  const faceHref = visual.shape === "cabochon" ? face ?? null : null;
+  const faceImage = visual.shape === "cabochon" ? face ?? null : null;
 
   if (setting && visual.shape === "cabochon" && setting.shape === "bezel") {
     // Stone in its setting: the metal rim drawn around the recess, with the
@@ -707,15 +708,18 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead", setting
         strokeWidth={0.75}
       />
       <g clipPath={`url(#${clipId})`}>
-        {faceHref ? (
+        {faceImage ? (
           // The photo is the stone's real face: it replaces the generated
-          // pattern, and its own highlights replace the gloss below.
+          // pattern, and its own highlights replace the gloss below. A quarter
+          // turn swaps the photo's width and height, so it is fit to the
+          // rotated box and then turned about the stone's center.
           <image
-            href={faceHref}
+            href={faceImage.href}
             x={0}
             y={0}
-            width={L}
-            height={W}
+            width={faceImage.rotation % 180 ? W : L}
+            height={faceImage.rotation % 180 ? L : W}
+            transform={`translate(${L / 2} ${W / 2}) rotate(${faceImage.rotation}) translate(${(faceImage.rotation % 180 ? -W : -L) / 2} ${(faceImage.rotation % 180 ? -L : -W) / 2})`}
             preserveAspectRatio="xMidYMid slice"
           />
         ) : (
@@ -726,7 +730,7 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead", setting
           </>
         )}
       </g>
-      {!faceHref &&
+      {!faceImage &&
         (visual.finish === "glossy" ||
           visual.finish === "pearl" ||
           visual.finish === "transparent") && (
@@ -752,7 +756,7 @@ interface BeadSwatchProps {
   /** Bezel setting to frame a cabochon in; see `Bead`. */
   setting?: BeadVisual | null;
   /** Face photo of a cabochon; see `Bead`. */
-  face?: string | null;
+  face?: FaceImage | null;
 }
 
 /** Standalone swatch for palettes and previews, scaled to fit `size`. */

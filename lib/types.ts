@@ -79,6 +79,8 @@ export interface Material {
   /** A close-up of a cabochon's face in the material-faces bucket (GRA-15);
    * the board draws it clipped to the outline instead of the generated face. */
   face_path: string | null;
+  /** Clockwise turn of the face photo, in degrees (0, 90, 180 or 270). */
+  face_rotation: number;
   /** Owner; null only on legacy rows created before auth (see migration 0005). */
   user_id: string | null;
   created_at: string;
@@ -99,6 +101,7 @@ export type NewMaterial = Omit<
   | "lot_id"
   | "lot_cost"
   | "face_path"
+  | "face_rotation"
 > & {
   visual?: BeadVisual | null;
   order_id?: string | null;
@@ -108,6 +111,7 @@ export type NewMaterial = Omit<
   lot_id?: string | null;
   lot_cost?: number | null;
   face_path?: string | null;
+  face_rotation?: number;
 };
 
 /** One line item extracted from a receipt by the API route. */

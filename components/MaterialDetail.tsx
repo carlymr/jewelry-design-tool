@@ -5,13 +5,15 @@ import { ExternalLink, X } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { LotPanel } from "@/components/LotSpecify";
-import { getMaterial, listLotItems, updateMaterial } from "@/lib/materials";
 import {
-  deleteMaterialFaces,
-  faceUrlOf,
-  uploadMaterialFace,
-  useFaceUrls,
-} from "@/lib/material-faces";
+  clearMaterialFace,
+  getMaterial,
+  listLotItems,
+  replaceMaterialFace,
+  rotateMaterialFace,
+  updateMaterial,
+} from "@/lib/materials";
+import { faceUrlOf, useFaceUrls, type FaceImage } from "@/lib/material-faces";
 import { getOrder, receiptUrl } from "@/lib/orders";
 import { generateVisualForName } from "@/lib/visuals";
 import {
@@ -133,7 +135,7 @@ function FacePhoto({
   onError,
 }: {
   material: Material;
-  faceUrl: string | null;
+  faceUrl: FaceImage | null;
   onChanged: () => Promise<void>;
   onError: (message: string) => void;
 }) {
@@ -152,18 +154,15 @@ function FacePhoto({
     }
   };
 
-  // The old photo goes only after the row points at the new one, and the new
-  // one is removed again if the row never took it.
   const replace = (file: File) =>
     run(async () => {
-      const path = await uploadMaterialFace(material.id, file);
-      try {
-        await updateMaterial(material.id, { face_path: path });
-      } catch (e) {
-        await deleteMaterialFaces([path]).catch(() => {});
-        throw e;
-      }
-      if (material.face_path) await deleteMaterialFaces([material.face_path]).catch(() => {});
+      await replaceMaterialFace(material, file);
+      await onChanged();
+    });
+
+  const rotate = () =>
+    run(async () => {
+      await rotateMaterialFace(material);
       await onChanged();
     });
 
@@ -172,8 +171,7 @@ function FacePhoto({
       return;
     }
     return run(async () => {
-      await updateMaterial(material.id, { face_path: null });
-      if (material.face_path) await deleteMaterialFaces([material.face_path]).catch(() => {});
+      await clearMaterialFace(material);
       await onChanged();
     });
   };
@@ -182,7 +180,12 @@ function FacePhoto({
     <div className="flex items-center gap-3">
       <span className="w-16 h-16 shrink-0 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center">
         {faceUrl ? (
-          <img src={faceUrl} alt={`Face photo of ${material.name}`} className="w-full h-full object-cover" />
+          <img
+            src={faceUrl.href}
+            alt={`Face photo of ${material.name}`}
+            className="w-full h-full object-cover"
+            style={{ transform: `rotate(${faceUrl.rotation}deg)` }}
+          />
         ) : (
           <span role="status" className="text-[10px] text-gray-400 text-center leading-tight px-1">
             {material.face_path ? "Loading…" : "No face photo"}
@@ -205,6 +208,18 @@ function FacePhoto({
           >
             {busy ? "Saving…" : material.face_path ? "Replace" : "Upload"}
           </button>
+          {material.face_path && (
+            <button
+              type="button"
+              onClick={rotate}
+              disabled={busy}
+              aria-label="Rotate face photo"
+              title="Turn the photo a quarter turn, to line the stone up with its outline on the board"
+              className="px-2 py-1 border border-gray-300 rounded text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Rotate
+            </button>
+          )}
           {material.face_path && (
             <button
               type="button"
