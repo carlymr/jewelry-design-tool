@@ -12,6 +12,15 @@ export const isLot = (m: Pick<Material, "is_lot"> | null | undefined) => !!m?.is
 /** Whether a material row was specified out of a lot. */
 export const isFromLot = (m: Pick<Material, "lot_id"> | null | undefined) => !!m?.lot_id;
 
+/** A starting name for a material specified out of a lot: the lot's name
+ * without the word "Lot" ("Picture Jasper Cabochon Lot Round" → "Picture
+ * Jasper Cabochon Round"), since that's usually what came out of the bag. */
+export const lotItemName = (lotName: string) =>
+  lotName
+    .replace(/\blots?(\s+of)?\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 /** What the lot cost as a whole: it is stored as `quantity` units at
  * `unit_cost` each ("300 carat @ $0.15", or "1 lot @ $20"). */
 export const lotPrice = (lot: Pick<Material, "quantity" | "unit_cost">) =>
