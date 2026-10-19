@@ -3,7 +3,7 @@ import { getUserId } from "./auth";
 import type { Material, MaterialSource, NewMaterial } from "./types";
 import type { GenericEntry } from "./generic-catalog";
 import { toCents } from "./lots";
-import { deleteMaterialFace } from "./material-faces";
+import { deleteMaterialFaces } from "./material-faces";
 
 export async function listMaterials(): Promise<Material[]> {
   const { data, error } = await getSupabase()
@@ -41,13 +41,18 @@ export async function updateMaterial(
 }
 
 export async function deleteMaterial(id: string): Promise<void> {
-  const db = getSupabase();
-  const { data: row } = await db.from("materials").select("face_path").eq("id", id).maybeSingle();
-  const { error } = await db.from("materials").delete().eq("id", id);
+  // Only the rows actually deleted are returned, so a photo is never removed
+  // for a row that survived (RLS or a stale id can match nothing).
+  const { data, error } = await getSupabase()
+    .from("materials")
+    .delete()
+    .eq("id", id)
+    .select("face_path");
   if (error) throw new Error(error.message);
   // The face photo goes with its row. A failed cleanup leaves an orphaned
   // object, which is better than failing a delete that already happened.
-  if (row?.face_path) await deleteMaterialFace(row.face_path).catch(() => {});
+  const faces = (data ?? []).flatMap((r) => (r.face_path ? [r.face_path] : []));
+  await deleteMaterialFaces(faces).catch(() => {});
 }
 
 /** One material by id — for a surface that holds only a reference to it

@@ -7,7 +7,7 @@ import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { LotPanel } from "@/components/LotSpecify";
 import { getMaterial, listLotItems, updateMaterial } from "@/lib/materials";
 import {
-  deleteMaterialFace,
+  deleteMaterialFaces,
   faceUrlOf,
   uploadMaterialFace,
   useFaceUrls,
@@ -160,27 +160,31 @@ function FacePhoto({
       try {
         await updateMaterial(material.id, { face_path: path });
       } catch (e) {
-        await deleteMaterialFace(path).catch(() => {});
+        await deleteMaterialFaces([path]).catch(() => {});
         throw e;
       }
-      if (material.face_path) await deleteMaterialFace(material.face_path).catch(() => {});
+      if (material.face_path) await deleteMaterialFaces([material.face_path]).catch(() => {});
       await onChanged();
     });
 
-  const remove = () =>
-    run(async () => {
+  const remove = () => {
+    if (!window.confirm("Remove this face photo? The board will draw the generated face instead.")) {
+      return;
+    }
+    return run(async () => {
       await updateMaterial(material.id, { face_path: null });
-      if (material.face_path) await deleteMaterialFace(material.face_path).catch(() => {});
+      if (material.face_path) await deleteMaterialFaces([material.face_path]).catch(() => {});
       await onChanged();
     });
+  };
 
   return (
     <div className="flex items-center gap-3">
       <span className="w-16 h-16 shrink-0 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center">
         {faceUrl ? (
-          <img src={faceUrl} alt="" className="w-full h-full object-cover" />
+          <img src={faceUrl} alt={`Face photo of ${material.name}`} className="w-full h-full object-cover" />
         ) : (
-          <span className="text-[10px] text-gray-400 text-center leading-tight px-1">
+          <span role="status" className="text-[10px] text-gray-400 text-center leading-tight px-1">
             {material.face_path ? "Loading…" : "No face photo"}
           </span>
         )}
@@ -188,20 +192,25 @@ function FacePhoto({
       <div className="flex flex-col gap-1 text-xs min-w-0">
         <span className="text-gray-600">Face photo</span>
         <span className="text-gray-400">
-          Drawn inside the stone&apos;s outline on the board. Frame the stone in the middle.
+          Shown cropped to the stone&apos;s outline, centered on the photo. Use a close-up with the stone in the middle.
         </span>
         <div className="flex gap-2">
           <button
+            type="button"
             onClick={() => inputRef.current?.click()}
             disabled={busy}
+            aria-label={material.face_path ? "Replace face photo" : "Upload face photo"}
+            aria-busy={busy}
             className="px-2 py-1 border border-purple-300 rounded text-purple-700 hover:bg-purple-50 disabled:opacity-50"
           >
-            {material.face_path ? "Replace" : "Upload"}
+            {busy ? "Saving…" : material.face_path ? "Replace" : "Upload"}
           </button>
           {material.face_path && (
             <button
+              type="button"
               onClick={remove}
               disabled={busy}
+              aria-label="Remove face photo"
               className="px-2 py-1 border border-gray-300 rounded text-gray-600 hover:bg-gray-50 disabled:opacity-50"
             >
               Remove
@@ -213,6 +222,7 @@ function FacePhoto({
         ref={inputRef}
         type="file"
         accept="image/*"
+        aria-label="Face photo file"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];

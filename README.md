@@ -131,6 +131,7 @@ lib/
   strand-layout.ts             # as-worn geometry (bracelet circle / necklace drape)
   photo-upload.ts              # shared downscale + transient-upload helpers ({user_id}/{uuid} paths)
   design-photos.ts             # finished-piece photos: upload, signed URLs, delete (design-photos bucket)
+  material-faces.ts            # cabochon face photos: upload, signed URLs (refreshed), delete (material-faces bucket)
   api-token.ts                 # server-side JWT check (authorizedUser / isAuthorized)
   rate-limit.ts                # per-user hourly caps on the AI routes (fails open)
   useHistory.ts                # bounded undo/redo snapshot stacks (design board)

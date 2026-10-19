@@ -31,6 +31,7 @@ import {
   uploadDesignPhoto,
 } from "@/lib/design-photos";
 import { resolveSetting } from "@/lib/bezel-fit";
+import { faceUrlOf, useFaceUrls } from "@/lib/material-faces";
 import {
   loadPricingSettings,
   savePricingSettings,
@@ -215,6 +216,7 @@ export default function PricingStudio({ materials }: Props) {
     () => new Map(materials.map((m) => [m.id, m])),
     [materials]
   );
+  const faceUrls = useFaceUrls(materials.map((m) => m.face_path));
 
   // --- settings: DB first, localStorage as fallback (and one-time migration
   // source for pre-0009 users, whose only copy is local) ---
@@ -1447,6 +1449,7 @@ export default function PricingStudio({ materials }: Props) {
                       visual={u.material?.visual ?? null}
                       size={24}
                       seed={u.materialId}
+                      face={faceUrlOf(u.material, faceUrls)}
                     />
                   </span>
                   <span className="flex-1 min-w-0">
@@ -1470,7 +1473,12 @@ export default function PricingStudio({ materials }: Props) {
                     className="flex items-center gap-2 p-2 bg-white rounded-lg border border-blue-200"
                   >
                     <span className="w-8 flex justify-center shrink-0">
-                      <BeadSwatch visual={m?.visual ?? null} size={24} seed={e.material_id} />
+                      <BeadSwatch
+                        visual={m?.visual ?? null}
+                        size={24}
+                        seed={e.material_id}
+                        face={faceUrlOf(m, faceUrls)}
+                      />
                     </span>
                     <span className="flex-1 min-w-0">
                       <span className="block text-sm text-gray-900">
