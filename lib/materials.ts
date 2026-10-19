@@ -3,6 +3,7 @@ import { getUserId } from "./auth";
 import type { Material, MaterialSource, NewMaterial } from "./types";
 import type { GenericEntry } from "./generic-catalog";
 import { toCents } from "./lots";
+import type { StoneTurn } from "./bead-visual";
 import { deleteMaterialFaces, uploadMaterialFace } from "./material-faces";
 
 export async function listMaterials(): Promise<Material[]> {
@@ -77,15 +78,15 @@ export async function clearMaterialFace(material: Pick<Material, "id" | "face_pa
   if (material.face_path) await deleteMaterialFaces([material.face_path]).catch(() => {});
 }
 
-/** Set how a cabochon hangs: whether its stored length runs vertically or
- * across the string. Sizes and the face photo are left alone. */
-export async function setCabochonHang(
+/** Set how far a cabochon is turned on the strand. Sizes and the face photo
+ * are left alone. */
+export async function setCabochonTurn(
   material: Pick<Material, "id" | "visual">,
-  hang: "vertical" | "horizontal"
+  turn: StoneTurn
 ): Promise<void> {
   const visual = material.visual;
   if (!visual) return;
-  await updateMaterial(material.id, { visual: { ...visual, hang } });
+  await updateMaterial(material.id, { visual: { ...visual, turn } });
 }
 
 /** One material by id — for a surface that holds only a reference to it

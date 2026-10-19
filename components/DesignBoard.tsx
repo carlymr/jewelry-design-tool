@@ -40,7 +40,7 @@ import {
 } from "@/lib/designs";
 import {
   pendantAttachment,
-  pendantTurn,
+  stoneTurn,
   colorFamilyOf,
   formatSizeMm,
   sizeBucketOf,
@@ -1666,11 +1666,12 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 const box = setting
                   ? settingBoxPx(setting, pxPerMm, visual)
                   : { L: visual.length_mm * pxPerMm, W: visual.width_mm * pxPerMm };
-                // The stone's stored length runs down or across the string,
-                // as its hang says; the drop and the span follow from that.
-                const turn = pendantTurn(visual);
-                const stoneL = turn === 90 ? box.L : box.W;
-                const stoneW = turn === 90 ? box.W : box.L;
+                // The stone is turned as its stored turn says; a quarter or
+                // three-quarter turn puts its length across the drop instead.
+                const turn = stoneTurn(visual);
+                const vertical = turn % 180 !== 0;
+                const stoneL = vertical ? box.L : box.W;
+                const stoneW = vertical ? box.W : box.L;
                 const bail = !setting && hasBail(visual);
                 const bailR = bail ? (CABOCHON_BAIL_MM / 2) * pxPerMm : 0;
                 // Undrilled (or unrecorded) stones have no hardware yet — a

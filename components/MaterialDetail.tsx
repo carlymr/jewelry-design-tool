@@ -10,7 +10,7 @@ import {
   getMaterial,
   listLotItems,
   replaceMaterialFace,
-  setCabochonHang,
+  setCabochonTurn,
   updateMaterial,
 } from "@/lib/materials";
 import { faceUrlOf, useFaceUrls, type FaceImage } from "@/lib/material-faces";
@@ -24,6 +24,8 @@ import {
   fmtMm,
   formatSizeMm,
   hasOutline,
+  stoneTurn,
+  type StoneTurn,
   type DrillType,
   type CabOutline,
 } from "@/lib/bead-visual";
@@ -399,8 +401,8 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
             // follow it onto a bead).
             const next = {
               ...visual,
-              // How the stone hangs is the owner's choice, not the model's guess.
-              hang: visual.shape === "cabochon" ? prior?.hang ?? null : null,
+              // How the stone is turned is the owner's choice, not the model's guess.
+              turn: visual.shape === "cabochon" && prior ? stoneTurn(prior) : null,
               ...(size && prior && visual.shape === prior.shape ? size : {}),
               drill:
                 visual.shape !== "cabochon" ? null : drillTouched.current ? drill : visual.drill,
@@ -509,7 +511,6 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                 onChange={(e) => handleName(e.target.value)}
                 disabled={busy}
                 className={fieldClass}
-                autoFocus
               />
               {!lot && (
                 <PhotoVisualButton
@@ -638,6 +639,8 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                       className={`${fieldClass} mt-1`}
                     />
                   </label>
+                  {/* Cabochons turn on the string instead; see Turned on the string. */}
+                  {material.visual?.shape !== "cabochon" && (
                   <button
                     type="button"
                     onClick={() => {
@@ -651,6 +654,7 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                   >
                     <ArrowLeftRight className="w-4 h-4" />
                   </button>
+                  )}
                   <label className="block text-xs text-gray-600 flex-1">
                     {labels.length}
                     <input
@@ -671,7 +675,9 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                   {fixedLength
                     ? "A placed chain element is always a 1-inch segment; only the link width is drawn."
                     : hasOutline(material.visual)
-                      ? "Length is the long axis, which hangs vertically."
+                      ? material.visual?.shape === "cabochon"
+                        ? "Length and width are its stored size. Turned on the string sets which way it hangs."
+                        : "Length is the long axis, which hangs vertically."
                       : "“Along strand” is the direction the string passes through. If the bead is drawn turned the wrong way, swap the two."}
                 </p>
               </div>
@@ -699,17 +705,17 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
             )}
             {material.visual?.shape === "cabochon" && (
               <label className="block text-xs text-gray-600">
-                Hangs
+                Turned on the string
                 <select
-                  value={material.visual.hang ?? "vertical"}
+                  value={stoneTurn(material.visual)}
                   onChange={async (e) => {
                     setBusy(true);
                     setError("");
                     try {
-                      await setCabochonHang(material, e.target.value as "vertical" | "horizontal");
+                      await setCabochonTurn(material, Number(e.target.value) as StoneTurn);
                       await onChanged();
                     } catch (err) {
-                      setError(err instanceof Error ? err.message : "Couldn't save how the stone hangs");
+                      setError(err instanceof Error ? err.message : "Couldn't save how the stone is turned");
                     } finally {
                       setBusy(false);
                     }
@@ -717,8 +723,10 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                   disabled={busy}
                   className={`${fieldClass} mt-1 bg-white`}
                 >
-                  <option value="vertical">Length runs up and down</option>
-                  <option value="horizontal">Length runs across the string</option>
+                  <option value={0}>0° — length across the string</option>
+                  <option value={90}>90° — length up and down (default)</option>
+                  <option value={180}>180° — upside down</option>
+                  <option value={270}>270° — upside down, the other way</option>
                 </select>
               </label>
             )}
