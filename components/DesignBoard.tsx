@@ -28,7 +28,7 @@ import MaterialDetailModal from "@/components/MaterialDetail";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { ensureGenericMaterial, updateMaterial } from "@/lib/materials";
-import { faceUrlOf, useFaceUrls } from "@/lib/material-faces";
+import { faceUrlOf, PENDANT_FACE_TURN, useFaceUrls } from "@/lib/material-faces";
 import { GENERIC_BY_KIND, isGeneric, type GenericEntry } from "@/lib/generic-catalog";
 import { isLot } from "@/lib/lots";
 import GenericBadge from "@/components/GenericBadge";
@@ -1718,7 +1718,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                         setting={setting}
                         pxPerMm={pxPerMm}
                         seed={p.material?.id ?? "missing"}
-                        face={faceUrlOf(p.material, faceUrls)}
+                        face={faceUrlOf(p.material, faceUrls, PENDANT_FACE_TURN)}
                       />
                     </g>
                   </g>

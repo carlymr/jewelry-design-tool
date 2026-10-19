@@ -10,7 +10,7 @@ import {
   getMaterial,
   listLotItems,
   replaceMaterialFace,
-  rotateMaterialFace,
+  turnCabochon,
   updateMaterial,
 } from "@/lib/materials";
 import { faceUrlOf, useFaceUrls, type FaceImage } from "@/lib/material-faces";
@@ -160,9 +160,9 @@ function FacePhoto({
       await onChanged();
     });
 
-  const rotate = () =>
+  const turn = () =>
     run(async () => {
-      await rotateMaterialFace(material);
+      await turnCabochon(material);
       await onChanged();
     });
 
@@ -184,7 +184,6 @@ function FacePhoto({
             src={faceUrl.href}
             alt={`Face photo of ${material.name}`}
             className="w-full h-full object-cover"
-            style={{ transform: `rotate(${faceUrl.rotation}deg)` }}
           />
         ) : (
           <span role="status" className="text-[10px] text-gray-400 text-center leading-tight px-1">
@@ -208,16 +207,16 @@ function FacePhoto({
           >
             {busy ? "Saving…" : material.face_path ? "Replace" : "Upload"}
           </button>
-          {material.face_path && (
+          {material.face_path && material.visual && (
             <button
               type="button"
-              onClick={rotate}
+              onClick={turn}
               disabled={busy}
-              aria-label="Rotate face photo"
-              title="Turn the photo a quarter turn, to line the stone up with its outline on the board"
+              aria-label="Turn stone"
+              title="Turn the stone a quarter turn, by swapping its length and width, so it matches the photo"
               className="px-2 py-1 border border-gray-300 rounded text-gray-600 hover:bg-gray-50 disabled:opacity-50"
             >
-              Rotate
+              Turn stone
             </button>
           )}
           {material.face_path && (

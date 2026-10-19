@@ -3,11 +3,7 @@ import { getUserId } from "./auth";
 import type { Material, MaterialSource, NewMaterial } from "./types";
 import type { GenericEntry } from "./generic-catalog";
 import { toCents } from "./lots";
-import {
-  deleteMaterialFaces,
-  nextFaceRotation,
-  uploadMaterialFace,
-} from "./material-faces";
+import { deleteMaterialFaces, uploadMaterialFace } from "./material-faces";
 
 export async function listMaterials(): Promise<Material[]> {
   const { data, error } = await getSupabase()
@@ -81,9 +77,14 @@ export async function clearMaterialFace(material: Pick<Material, "id" | "face_pa
   if (material.face_path) await deleteMaterialFaces([material.face_path]).catch(() => {});
 }
 
-/** Turn the face photo a quarter turn clockwise. */
-export async function rotateMaterialFace(material: Pick<Material, "id" | "face_rotation">): Promise<void> {
-  await updateMaterial(material.id, { face_rotation: nextFaceRotation(material.face_rotation) });
+/** Turn a cabochon a quarter turn on the wire by swapping its stored length and
+ * width. The face photo is left as taken, so the stone is made to match it. */
+export async function turnCabochon(material: Pick<Material, "id" | "visual">): Promise<void> {
+  const visual = material.visual;
+  if (!visual) return;
+  await updateMaterial(material.id, {
+    visual: { ...visual, length_mm: visual.width_mm, width_mm: visual.length_mm },
+  });
 }
 
 /** One material by id — for a surface that holds only a reference to it

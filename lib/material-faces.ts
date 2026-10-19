@@ -13,17 +13,17 @@ export const MATERIAL_FACES_BUCKET = "material-faces";
 // so a board or inventory left open keeps its photos.
 const URL_REFRESH_MS = 50 * 60 * 1000;
 
-/** A face photo ready to draw: its display URL and how far to turn it. */
+/** How far a pendant's drawing is turned on the board (see DesignBoard), in
+ * degrees. A face photo drawn inside it is turned back by the same amount, so
+ * the photo reads as it was taken. */
+export const PENDANT_FACE_TURN = 270;
+
+/** A face photo ready to draw: its display URL and how far to turn it, in
+ * degrees, within the stone's own drawing. */
 export interface FaceImage {
   href: string;
   rotation: number;
 }
-
-export const FACE_ROTATIONS = [0, 90, 180, 270] as const;
-
-/** The next orientation in the 90° cycle a Rotate button steps through. */
-export const nextFaceRotation = (rotation: number) =>
-  FACE_ROTATIONS[(FACE_ROTATIONS.indexOf(rotation as (typeof FACE_ROTATIONS)[number]) + 1) % 4];
 
 /** Upload a face photo for a material; returns its storage path. The caller
  * writes the path to materials.face_path. */
@@ -37,14 +37,16 @@ export const deleteMaterialFaces = (paths: string[]) =>
   removeOwnedPhotos(MATERIAL_FACES_BUCKET, paths);
 
 /** The face photo to draw for a material, when it has one and it has loaded.
- * Null means draw the visual's generated face instead. */
+ * Null means draw the visual's generated face instead. `turn` is the turn the
+ * photo's drawing sits in (0 unless it is drawn inside a turned pendant). */
 export function faceUrlOf(
-  material: Pick<Material, "face_path" | "face_rotation"> | null | undefined,
-  urls: Record<string, string>
+  material: Pick<Material, "face_path"> | null | undefined,
+  urls: Record<string, string>,
+  turn = 0
 ): FaceImage | null {
   if (!material?.face_path) return null;
   const href = urls[material.face_path];
-  return href ? { href, rotation: material.face_rotation ?? 0 } : null;
+  return href ? { href, rotation: turn } : null;
 }
 
 /** Signed URLs for the face photos among `paths`, refetched when the set of
