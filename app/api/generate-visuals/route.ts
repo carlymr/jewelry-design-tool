@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { BeadVisualSchema } from "@/lib/bead-visual";
+import { BeadVisualSchema, normalizeOrientation } from "@/lib/bead-visual";
 import { isAuthorized } from "@/lib/api-token";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -97,7 +97,9 @@ export async function POST(request: NextRequest) {
     // Only return visuals for ids we were actually asked about.
     const known = new Set(materials.map((m) => m.id));
     return NextResponse.json({
-      visuals: parsed.visuals.filter((v) => known.has(v.id)),
+      visuals: parsed.visuals
+        .filter((v) => known.has(v.id))
+        .map((v) => ({ ...v, visual: normalizeOrientation(v.visual) })),
     });
   } catch (error) {
     if (error instanceof Anthropic.RateLimitError) {

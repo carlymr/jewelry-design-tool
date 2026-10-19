@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, X } from "lucide-react";
+import { ArrowLeftRight, ExternalLink, X } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { LotPanel } from "@/components/LotSpecify";
@@ -21,6 +21,8 @@ import {
   DRILL_LABELS,
   CAB_OUTLINES,
   CAB_OUTLINE_LABELS,
+  fmtMm,
+  formatSizeMm,
   hasOutline,
   type DrillType,
   type CabOutline,
@@ -114,6 +116,27 @@ interface Draft {
    * knows; unit_cost is derived from it on save, so resizing a parcel
    * (100 carat → 3 pieces) keeps what was paid instead of the old rate. */
   lot_price: string;
+  /** Size in mm (GRA-46): along the stringing hole and across it. Raw text
+   * like the other numeric fields; "" when the row has no visual yet. */
+  length_mm: string;
+  width_mm: string;
+}
+
+/** A stored mm value as input text — same trimming as the caption above it. */
+const mmText = (n: number | undefined) => (n == null ? "" : fmtMm(n));
+
+/** Field labels for the two axes, by what the shape stores in them. */
+function sizeLabels(shape: string | undefined): { length: string; width: string } {
+  switch (shape) {
+    case "cabochon":
+      return { length: "Length (mm)", width: "Width (mm)" };
+    case "bezel":
+      return { length: "Recess length (mm)", width: "Recess width (mm)" };
+    case "chain":
+      return { length: "Per element (mm)", width: "Link width (mm)" };
+    default:
+      return { length: "Along strand (mm)", width: "Across (mm)" };
+  }
 }
 
 interface Props {
@@ -242,6 +265,8 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
     quantity: String(material.quantity),
     drill: material.visual?.drill ?? "",
     outline: material.visual?.outline ?? "",
+    length_mm: mmText(material.visual?.length_mm),
+    width_mm: mmText(material.visual?.width_mm),
     is_lot: material.is_lot,
     lot_price: lotPrice(material).toFixed(2),
   });
@@ -249,6 +274,12 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
   const regenTouched = useRef(false);
   const drillTouched = useRef(false);
   const outlineTouched = useRef(false);
+  const sizeTouched = useRef(false);
+  const shape = material.visual?.shape;
+  // A chain element is always a 1-inch segment — the strand's stock counting
+  // depends on it — so only the link width is editable.
+  const fixedLength = shape === "chain";
+  const labels = sizeLabels(shape);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const faceUrls = useFaceUrls([material.face_path]);
@@ -331,6 +362,19 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
           throw new Error("Cost must be a non-negative number");
         }
       }
+      // Size (GRA-46): only validated when the owner edited it, so a row with
+      // an odd stored value can still have its other fields saved. Checked
+      // before anything is written so a rejected size leaves the row untouched.
+      const prior = material.visual;
+      let size: { length_mm: number; width_mm: number } | null = null;
+      if (sizeTouched.current && prior) {
+        const length_mm = fixedLength ? prior.length_mm : parseFloat(form.length_mm);
+        const width_mm = parseFloat(form.width_mm);
+        if (!(length_mm > 0) || !(width_mm > 0)) {
+          throw new Error("Size must be a positive number of millimeters on both axes");
+        }
+        size = { length_mm, width_mm };
+      }
       await updateMaterial(material.id, {
         name,
         category: form.category,
@@ -349,9 +393,15 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
           if (visual) {
             // drill only belongs on cabochons and outline on cabochons and
             // bezels; a value the user actually set outranks the model's
-            // guess, an untouched select doesn't.
+            // guess, an untouched select doesn't. Same for a typed size, but
+            // only if the shape didn't change — the numbers were entered
+            // against the old shape's axes (and a chain's fixed 25.4 must not
+            // follow it onto a bead).
             const next = {
               ...visual,
+              // How the stone hangs is the owner's choice, not the model's guess.
+              hang: visual.shape === "cabochon" ? prior?.hang ?? null : null,
+              ...(size && prior && visual.shape === prior.shape ? size : {}),
               drill:
                 visual.shape !== "cabochon" ? null : drillTouched.current ? drill : visual.drill,
               outline: !hasOutline(visual)
@@ -367,15 +417,18 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
           regenError = e instanceof Error ? e.message : "unknown error";
         }
       }
-      // A drill/outline change must land even if the regen failed or returned nothing.
-      const prior = material.visual;
+      // A drill/outline/size change must land even if the regen failed or returned nothing.
       if (!visualWritten && prior) {
         const drillChanged = prior.shape === "cabochon" && drill !== (prior.drill ?? null);
         const outlineChanged = hasOutline(prior) && outline !== (prior.outline ?? null);
-        if (drillChanged || outlineChanged) {
+        const sizeChanged =
+          size !== null &&
+          (size.length_mm !== prior.length_mm || size.width_mm !== prior.width_mm);
+        if (drillChanged || outlineChanged || sizeChanged) {
           await updateMaterial(material.id, {
             visual: {
               ...prior,
+              ...(sizeChanged && size ? size : {}),
               drill: drillChanged ? drill : prior.drill ?? null,
               outline: outlineChanged ? outline : prior.outline ?? null,
             },
@@ -426,9 +479,14 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                 face={faceUrlOf(material, faceUrls)}
               />
             </span>
-            <h2 className="text-base font-semibold text-gray-900 leading-snug">
-              {material.name}
-            </h2>
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-gray-900 leading-snug">
+                {material.name}
+              </h2>
+              {material.visual && (
+                <p className="text-xs text-gray-500">{formatSizeMm(material.visual)}</p>
+              )}
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -561,6 +619,62 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                   className={`${fieldClass} mt-1`}
                 />
               </label>
+            )}
+            {material.visual && (
+              <div className="col-span-2">
+                <div className="flex items-end gap-2">
+                  <label className="block text-xs text-gray-600 flex-1">
+                    {labels.width}
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={form.width_mm}
+                      onChange={(e) => {
+                        sizeTouched.current = true;
+                        setDraft({ width_mm: e.target.value });
+                      }}
+                      disabled={busy}
+                      className={`${fieldClass} mt-1`}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sizeTouched.current = true;
+                      setDraft({ length_mm: form.width_mm, width_mm: form.length_mm });
+                    }}
+                    disabled={busy || fixedLength}
+                    className="p-1.5 mb-0.5 text-gray-400 hover:text-purple-600 disabled:opacity-40 shrink-0"
+                    title={`Swap ${labels.width.toLowerCase()} and ${labels.length.toLowerCase()}`}
+                    aria-label={`Swap ${labels.width} and ${labels.length}`}
+                  >
+                    <ArrowLeftRight className="w-4 h-4" />
+                  </button>
+                  <label className="block text-xs text-gray-600 flex-1">
+                    {labels.length}
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={form.length_mm}
+                      onChange={(e) => {
+                        sizeTouched.current = true;
+                        setDraft({ length_mm: e.target.value });
+                      }}
+                      disabled={busy || fixedLength}
+                      className={`${fieldClass} mt-1`}
+                    />
+                  </label>
+                </div>
+                <p className="mt-1 text-[11px] text-gray-500">
+                  {fixedLength
+                    ? "A placed chain element is always a 1-inch segment; only the link width is drawn."
+                    : hasOutline(material.visual)
+                      ? "Length is the long axis, which hangs vertically."
+                      : "“Along strand” is the direction the string passes through. If the bead is drawn turned the wrong way, swap the two."}
+                </p>
+              </div>
             )}
             {material.visual?.shape === "cabochon" && (
               <label className="block text-xs text-gray-600">
