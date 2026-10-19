@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
-import { getUserId } from "./auth";
-import { getSupabase } from "./supabase";
-import { extensionForMediaType, prepareImage } from "./photo-upload";
+import { ownedPhotoUrls, removeOwnedPhotos, uploadOwnedPhoto } from "./photo-upload";
 import type { Material } from "./types";
 
 // Face photos for cabochons (GRA-15), kept in the owner-scoped material-faces
@@ -11,43 +9,20 @@ import type { Material } from "./types";
 
 export const MATERIAL_FACES_BUCKET = "material-faces";
 
-// Signed URLs last an hour (see materialFaceUrls); refresh before they lapse
+// Signed URLs last an hour (see ownedPhotoUrls); refresh before they lapse
 // so a board or inventory left open keeps its photos.
 const URL_REFRESH_MS = 50 * 60 * 1000;
 
 /** Upload a face photo for a material; returns its storage path. The caller
  * writes the path to materials.face_path. */
-export async function uploadMaterialFace(materialId: string, file: File): Promise<string> {
-  const userId = await getUserId();
-  if (!userId) throw new Error("Sign in to upload photos.");
-  const { blob, mediaType } = await prepareImage(file);
-  const path = `${userId}/${materialId}/${crypto.randomUUID()}.${extensionForMediaType(mediaType)}`;
-  const { error } = await getSupabase()
-    .storage.from(MATERIAL_FACES_BUCKET)
-    .upload(path, blob, { contentType: mediaType });
-  if (error) throw new Error(`Upload failed: ${error.message}`);
-  return path;
-}
+export const uploadMaterialFace = (materialId: string, file: File) =>
+  uploadOwnedPhoto(MATERIAL_FACES_BUCKET, materialId, file);
 
 /** Short-lived display URLs, keyed by path. Missing objects are left out. */
-export async function materialFaceUrls(paths: string[]): Promise<Record<string, string>> {
-  if (paths.length === 0) return {};
-  const { data, error } = await getSupabase()
-    .storage.from(MATERIAL_FACES_BUCKET)
-    .createSignedUrls(paths, 60 * 60);
-  if (error) throw new Error(error.message);
-  const urls: Record<string, string> = {};
-  for (const item of data ?? []) {
-    if (item.path && item.signedUrl) urls[item.path] = item.signedUrl;
-  }
-  return urls;
-}
+export const materialFaceUrls = (paths: string[]) => ownedPhotoUrls(MATERIAL_FACES_BUCKET, paths);
 
-export async function deleteMaterialFaces(paths: string[]): Promise<void> {
-  if (paths.length === 0) return;
-  const { error } = await getSupabase().storage.from(MATERIAL_FACES_BUCKET).remove(paths);
-  if (error) throw new Error(error.message);
-}
+export const deleteMaterialFaces = (paths: string[]) =>
+  removeOwnedPhotos(MATERIAL_FACES_BUCKET, paths);
 
 /** The display URL for a material's face photo, when it has one and it has
  * loaded. Null means draw the visual's generated face instead. */
