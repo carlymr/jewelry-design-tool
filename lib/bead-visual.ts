@@ -196,15 +196,11 @@ export type BeadVisual = z.infer<typeof BeadVisualSchema>;
 export type StoneTurn = 0 | 90 | 180 | 270;
 
 /** Degrees a cabochon is turned clockwise on the strand. Unset means 90, the
- * stored length running up and down, as cabochons have always hung. A legacy
- * `hang` from before turns were stored is honored when there is no turn. */
+ * stored length running up and down, as cabochons have always hung. */
 export function stoneTurn(visual: BeadVisual): StoneTurn {
-  if (typeof visual.turn === "number") {
-    const quarters = Math.round(visual.turn / 90);
-    return (((quarters % 4) + 4) % 4) * 90 as StoneTurn;
-  }
-  const legacy = visual as BeadVisual & { hang?: string | null };
-  return legacy.hang === "horizontal" ? 0 : 90;
+  if (typeof visual.turn !== "number") return 90;
+  const quarters = Math.round(visual.turn / 90);
+  return (((quarters % 4) + 4) % 4) * 90 as StoneTurn;
 }
 
 /** Whether a cabochon hangs on the string and so turns with `stoneTurn`. A
