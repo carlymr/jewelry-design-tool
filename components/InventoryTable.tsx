@@ -21,6 +21,7 @@ import MaterialDetailModal, { SourcePanel } from "@/components/MaterialDetail";
 import LotSpecifyModal, { LotPanel } from "@/components/LotSpecify";
 import LotBadge from "@/components/LotBadge";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
+import { faceUrlOf, useFaceUrls } from "@/lib/material-faces";
 import { listOrders } from "@/lib/orders";
 import { colorFamilyOf, formatSizeMm, sizeBucketOf } from "@/lib/bead-visual";
 import { isGeneric } from "@/lib/generic-catalog";
@@ -54,6 +55,7 @@ interface Props {
 }
 
 export default function InventoryTable({ materials, loading, onChanged }: Props) {
+  const faceUrls = useFaceUrls(materials.map((m) => m.face_path));
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
@@ -475,7 +477,12 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   title={formatSizeMm(material.visual) ?? undefined}
                 >
                   {material.visual && (
-                    <BeadSwatch visual={material.visual} size={22} seed={material.id} />
+                    <BeadSwatch
+                      visual={material.visual}
+                      size={22}
+                      seed={material.id}
+                      face={faceUrlOf(material, faceUrls)}
+                    />
                   )}
                 </span>
                 <span className="min-w-0 wrap-break-word leading-snug">{material.name}</span>

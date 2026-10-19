@@ -77,6 +77,7 @@ const metal = (
   faceted: false,
   drill: null,
   outline: null,
+  hang: null,
 });
 
 const entry = (

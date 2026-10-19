@@ -121,3 +121,53 @@ export async function prepareImage(file: File): Promise<{ blob: Blob; mediaType:
 
 /** Photo-only upload (camera buttons). */
 export const uploadPhoto = (file: File) => uploadForProcessing(file);
+
+// Kept photos in owner-scoped buckets (design-photos for listings,
+// material-faces for cabochons). Paths are {user_id}/{folder}/{uuid}.{ext}
+// and each bucket's policies check the first segment against the caller, so
+// these helpers never need a service key. The modules that own a bucket
+// wrap them with its name.
+
+/** Upload one kept photo under `folder` (a design or material id); returns
+ * its storage path. */
+export async function uploadOwnedPhoto(bucket: string, folder: string, file: File): Promise<string> {
+  const userId = await getUserId();
+  if (!userId) throw new Error("Sign in to upload photos.");
+  const { blob, mediaType } = await prepareImage(file);
+  const path = `${userId}/${folder}/${crypto.randomUUID()}.${extensionForMediaType(mediaType)}`;
+  const { error } = await getSupabase()
+    .storage.from(bucket)
+    .upload(path, blob, { contentType: mediaType });
+  if (error) throw new Error(`Upload failed: ${error.message}`);
+  return path;
+}
+
+/** Short-lived display URLs, keyed by path. Missing objects are left out. */
+export async function ownedPhotoUrls(bucket: string, paths: string[]): Promise<Record<string, string>> {
+  if (paths.length === 0) return {};
+  const { data, error } = await getSupabase()
+    .storage.from(bucket)
+    .createSignedUrls(paths, 60 * 60);
+  if (error) throw new Error(error.message);
+  const urls: Record<string, string> = {};
+  for (const item of data ?? []) {
+    if (item.path && item.signedUrl) urls[item.path] = item.signedUrl;
+  }
+  return urls;
+}
+
+export async function removeOwnedPhotos(bucket: string, paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  const { error } = await getSupabase().storage.from(bucket).remove(paths);
+  if (error) throw new Error(error.message);
+}
+
+/** Every object under `folder`, including any orphaned by an interrupted
+ * upload, as full storage paths. */
+export async function listOwnedFolder(bucket: string, folder: string): Promise<string[]> {
+  const { data, error } = await getSupabase()
+    .storage.from(bucket)
+    .list(folder, { limit: 1000 });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((f) => `${folder}/${f.name}`);
+}

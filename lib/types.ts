@@ -76,6 +76,9 @@ export interface Material {
   lot_id: string | null;
   /** The slice of that lot's price this row took; null unless from a lot. */
   lot_cost: number | null;
+  /** A close-up of a cabochon's face in the material-faces bucket (GRA-15);
+   * the board draws it clipped to the outline instead of the generated face. */
+  face_path: string | null;
   /** Owner; null only on legacy rows created before auth (see migration 0005). */
   user_id: string | null;
   created_at: string;
@@ -95,6 +98,7 @@ export type NewMaterial = Omit<
   | "is_lot"
   | "lot_id"
   | "lot_cost"
+  | "face_path"
 > & {
   visual?: BeadVisual | null;
   order_id?: string | null;
@@ -103,6 +107,7 @@ export type NewMaterial = Omit<
   is_lot?: boolean;
   lot_id?: string | null;
   lot_cost?: number | null;
+  face_path?: string | null;
 };
 
 /** One line item extracted from a receipt by the API route. */

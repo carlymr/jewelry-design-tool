@@ -28,6 +28,7 @@ import MaterialDetailModal from "@/components/MaterialDetail";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { ensureGenericMaterial, updateMaterial } from "@/lib/materials";
+import { faceUrlOf, useFaceUrls } from "@/lib/material-faces";
 import { GENERIC_BY_KIND, isGeneric, type GenericEntry } from "@/lib/generic-catalog";
 import { isLot } from "@/lib/lots";
 import GenericBadge from "@/components/GenericBadge";
@@ -39,6 +40,7 @@ import {
 } from "@/lib/designs";
 import {
   pendantAttachment,
+  pendantTurn,
   colorFamilyOf,
   formatSizeMm,
   sizeBucketOf,
@@ -266,6 +268,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     () => new Map(materials.map((m) => [m.id, m])),
     [materials]
   );
+  // Display URLs for cabochon face photos (GRA-15), shared by the strand and palette.
+  const faceUrls = useFaceUrls(materials.map((m) => m.face_path));
   const detailMaterial = detailId ? materialById.get(detailId) ?? null : null;
 
   // The bezel a placed cabochon sits in (GRA-29). A stale setting resolves
@@ -1280,7 +1284,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           }
         >
           <span className="w-9 flex justify-center shrink-0">
-            <BeadSwatch visual={m.visual} size={32} seed={m.id} />
+            <BeadSwatch visual={m.visual} size={32} seed={m.id} face={faceUrlOf(m, faceUrls)} />
           </span>
           <span className="min-w-0">
             <span className="block text-sm text-gray-900 leading-snug">{m.name}</span>
@@ -1583,7 +1587,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                         className="w-full flex items-center gap-3 px-2 py-1.5 rounded-md hover:bg-purple-50 text-left"
                       >
                         <span className="w-9 flex justify-center shrink-0">
-                          <BeadSwatch visual={s.visual} size={28} seed={s.id} />
+                          <BeadSwatch visual={s.visual} size={28} seed={s.id} face={faceUrlOf(s, faceUrls)} />
                         </span>
                         <span className="min-w-0">
                           <span className="block text-sm text-gray-900 truncate">{s.name}</span>
@@ -1662,8 +1666,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 const box = setting
                   ? settingBoxPx(setting, pxPerMm, visual)
                   : { L: visual.length_mm * pxPerMm, W: visual.width_mm * pxPerMm };
-                const stoneW = box.W;
-                const stoneL = box.L;
+                // The stone's stored length runs down or across the string,
+                // as its hang says; the drop and the span follow from that.
+                const turn = pendantTurn(visual);
+                const stoneL = turn === 90 ? box.L : box.W;
+                const stoneW = turn === 90 ? box.W : box.L;
                 const bail = !setting && hasBail(visual);
                 const bailR = bail ? (CABOCHON_BAIL_MM / 2) * pxPerMm : 0;
                 // Undrilled (or unrecorded) stones have no hardware yet — a
@@ -1712,12 +1719,18 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                         strokeDasharray={bailDash ? `${bailR * 0.7} ${bailR * 0.5}` : undefined}
                       />
                     )}
-                    <g transform={`translate(${stoneW / 2}, ${stoneTop}) rotate(90)`}>
+                    {/* Centered on the drop: the drawing is turned as its hang
+                        says, and its face photo turned back by the same amount
+                        so the photo reads as it was taken. */}
+                    <g
+                      transform={`translate(0, ${stoneTop + stoneL / 2}) rotate(${turn}) translate(${-box.L / 2}, ${-box.W / 2})`}
+                    >
                       <Bead
                         visual={visual}
                         setting={setting}
                         pxPerMm={pxPerMm}
                         seed={p.material?.id ?? "missing"}
+                        face={faceUrlOf(p.material, faceUrls, -turn)}
                       />
                     </g>
                   </g>
@@ -1751,6 +1764,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                         visual={visual}
                         pxPerMm={pxPerMm}
                         seed={p.material?.id ?? "missing"}
+                        face={faceUrlOf(p.material, faceUrls)}
                       />
                     ) : (
                       <g>

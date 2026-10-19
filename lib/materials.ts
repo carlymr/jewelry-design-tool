@@ -3,6 +3,7 @@ import { getUserId } from "./auth";
 import type { Material, MaterialSource, NewMaterial } from "./types";
 import type { GenericEntry } from "./generic-catalog";
 import { toCents } from "./lots";
+import { deleteMaterialFaces, uploadMaterialFace } from "./material-faces";
 
 export async function listMaterials(): Promise<Material[]> {
   const { data, error } = await getSupabase()
@@ -40,8 +41,51 @@ export async function updateMaterial(
 }
 
 export async function deleteMaterial(id: string): Promise<void> {
-  const { error } = await getSupabase().from("materials").delete().eq("id", id);
+  // Only the rows actually deleted are returned, so a photo is never removed
+  // for a row that survived (RLS or a stale id can match nothing).
+  const { data, error } = await getSupabase()
+    .from("materials")
+    .delete()
+    .eq("id", id)
+    .select("face_path");
   if (error) throw new Error(error.message);
+  // The face photo goes with its row. A failed cleanup leaves an orphaned
+  // object, which is better than failing a delete that already happened.
+  const faces = (data ?? []).flatMap((r) => (r.face_path ? [r.face_path] : []));
+  await deleteMaterialFaces(faces).catch(() => {});
+}
+
+/** Set a cabochon's face photo. The new object is stored before the row
+ * points at it, and the photo it replaces is removed only after the row has
+ * moved on; a failed row update removes the new one again. */
+export async function replaceMaterialFace(
+  material: Pick<Material, "id" | "face_path">,
+  file: File
+): Promise<void> {
+  const path = await uploadMaterialFace(material.id, file);
+  try {
+    await updateMaterial(material.id, { face_path: path });
+  } catch (e) {
+    await deleteMaterialFaces([path]).catch(() => {});
+    throw e;
+  }
+  if (material.face_path) await deleteMaterialFaces([material.face_path]).catch(() => {});
+}
+
+export async function clearMaterialFace(material: Pick<Material, "id" | "face_path">): Promise<void> {
+  await updateMaterial(material.id, { face_path: null });
+  if (material.face_path) await deleteMaterialFaces([material.face_path]).catch(() => {});
+}
+
+/** Set how a cabochon hangs: whether its stored length runs vertically or
+ * across the string. Sizes and the face photo are left alone. */
+export async function setCabochonHang(
+  material: Pick<Material, "id" | "visual">,
+  hang: "vertical" | "horizontal"
+): Promise<void> {
+  const visual = material.visual;
+  if (!visual) return;
+  await updateMaterial(material.id, { visual: { ...visual, hang } });
 }
 
 /** One material by id — for a surface that holds only a reference to it

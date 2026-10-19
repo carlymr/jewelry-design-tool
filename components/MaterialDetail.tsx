@@ -5,7 +5,15 @@ import { ArrowLeftRight, ExternalLink, X } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { LotPanel } from "@/components/LotSpecify";
-import { getMaterial, listLotItems, updateMaterial } from "@/lib/materials";
+import {
+  clearMaterialFace,
+  getMaterial,
+  listLotItems,
+  replaceMaterialFace,
+  setCabochonHang,
+  updateMaterial,
+} from "@/lib/materials";
+import { faceUrlOf, useFaceUrls, type FaceImage } from "@/lib/material-faces";
 import { getOrder, receiptUrl } from "@/lib/orders";
 import { generateVisualForName } from "@/lib/visuals";
 import {
@@ -140,6 +148,111 @@ interface Props {
   onError: (message: string) => void;
 }
 
+/** A cabochon's face photo (GRA-15): the real stone, drawn clipped to its
+ * outline on the board. Writes straight to the row, like the camera button,
+ * so an upload is never left unrecorded. */
+function FacePhoto({
+  material,
+  faceUrl,
+  onChanged,
+  onError,
+}: {
+  material: Material;
+  faceUrl: FaceImage | null;
+  onChanged: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true);
+    onError("");
+    try {
+      await action();
+    } catch (e) {
+      onError(`"${material.name}": ${e instanceof Error ? e.message : "Couldn't update the face photo"}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const replace = (file: File) =>
+    run(async () => {
+      await replaceMaterialFace(material, file);
+      await onChanged();
+    });
+
+  const remove = () => {
+    if (!window.confirm("Remove this face photo? The board will draw the generated face instead.")) {
+      return;
+    }
+    return run(async () => {
+      await clearMaterialFace(material);
+      await onChanged();
+    });
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-16 h-16 shrink-0 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center">
+        {faceUrl ? (
+          <img
+            src={faceUrl.href}
+            alt={`Face photo of ${material.name}`}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <span role="status" className="text-[10px] text-gray-400 text-center leading-tight px-1">
+            {material.face_path ? "Loading…" : "No face photo"}
+          </span>
+        )}
+      </span>
+      <div className="flex flex-col gap-1 text-xs min-w-0">
+        <span className="text-gray-600">Face photo</span>
+        <span className="text-gray-400">
+          Shown cropped to the stone&apos;s outline, centered on the photo. Use a close-up with the stone in the middle.
+        </span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={busy}
+            aria-label={material.face_path ? "Replace face photo" : "Upload face photo"}
+            aria-busy={busy}
+            className="px-2 py-1 border border-purple-300 rounded text-purple-700 hover:bg-purple-50 disabled:opacity-50"
+          >
+            {busy ? "Saving…" : material.face_path ? "Replace" : "Upload"}
+          </button>
+          {material.face_path && (
+            <button
+              type="button"
+              onClick={remove}
+              disabled={busy}
+              aria-label="Remove face photo"
+              className="px-2 py-1 border border-gray-300 rounded text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Remove
+            </button>
+          )}
+        </div>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        aria-label="Face photo file"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) replace(file);
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
 const fieldClass =
   "w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500 disabled:bg-gray-100";
 
@@ -169,6 +282,7 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
   const labels = sizeLabels(shape);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const faceUrls = useFaceUrls([material.face_path]);
   const generic = isGeneric(material);
   // The draft's flag, not the row's: relabeling happens as the box is ticked.
   const lot = form.is_lot;
@@ -285,6 +399,8 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
             // follow it onto a bead).
             const next = {
               ...visual,
+              // How the stone hangs is the owner's choice, not the model's guess.
+              hang: visual.shape === "cabochon" ? prior?.hang ?? null : null,
               ...(size && prior && visual.shape === prior.shape ? size : {}),
               drill:
                 visual.shape !== "cabochon" ? null : drillTouched.current ? drill : visual.drill,
@@ -356,7 +472,12 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex items-center gap-3 min-w-0">
             <span className="w-12 flex justify-center shrink-0">
-              <BeadSwatch visual={material.visual} size={44} seed={material.id} />
+              <BeadSwatch
+                visual={material.visual}
+                size={44}
+                seed={material.id}
+                face={faceUrlOf(material, faceUrls)}
+              />
             </span>
             <div className="min-w-0">
               <h2 className="text-base font-semibold text-gray-900 leading-snug">
@@ -576,6 +697,31 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                 </select>
               </label>
             )}
+            {material.visual?.shape === "cabochon" && (
+              <label className="block text-xs text-gray-600">
+                Hangs
+                <select
+                  value={material.visual.hang ?? "vertical"}
+                  onChange={async (e) => {
+                    setBusy(true);
+                    setError("");
+                    try {
+                      await setCabochonHang(material, e.target.value as "vertical" | "horizontal");
+                      await onChanged();
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Couldn't save how the stone hangs");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  disabled={busy}
+                  className={`${fieldClass} mt-1 bg-white`}
+                >
+                  <option value="vertical">Length runs up and down</option>
+                  <option value="horizontal">Length runs across the string</option>
+                </select>
+              </label>
+            )}
             {hasOutline(material.visual) && (
               <label className="block text-xs text-gray-600">
                 {material.visual?.shape === "bezel" ? "Recess shape" : "Face shape"}
@@ -598,6 +744,15 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
               </label>
             )}
           </div>
+
+          {material.visual?.shape === "cabochon" && (
+            <FacePhoto
+              material={material}
+              faceUrl={faceUrlOf(material, faceUrls)}
+              onChanged={onChanged}
+              onError={setError}
+            />
+          )}
 
           {!generic && (
             <label
