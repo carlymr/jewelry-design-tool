@@ -10,7 +10,7 @@ import {
   getMaterial,
   listLotItems,
   replaceMaterialFace,
-  turnCabochon,
+  setCabochonHang,
   updateMaterial,
 } from "@/lib/materials";
 import { faceUrlOf, useFaceUrls, type FaceImage } from "@/lib/material-faces";
@@ -160,12 +160,6 @@ function FacePhoto({
       await onChanged();
     });
 
-  const turn = () =>
-    run(async () => {
-      await turnCabochon(material);
-      await onChanged();
-    });
-
   const remove = () => {
     if (!window.confirm("Remove this face photo? The board will draw the generated face instead.")) {
       return;
@@ -207,18 +201,6 @@ function FacePhoto({
           >
             {busy ? "Saving…" : material.face_path ? "Replace" : "Upload"}
           </button>
-          {material.face_path && material.visual && (
-            <button
-              type="button"
-              onClick={turn}
-              disabled={busy}
-              aria-label="Turn stone"
-              title="Turn the stone a quarter turn, by swapping its length and width, so it matches the photo"
-              className="px-2 py-1 border border-gray-300 rounded text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-            >
-              Turn stone
-            </button>
-          )}
           {material.face_path && (
             <button
               type="button"
@@ -598,6 +580,31 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
                       {DRILL_LABELS[d]}
                     </option>
                   ))}
+                </select>
+              </label>
+            )}
+            {material.visual?.shape === "cabochon" && (
+              <label className="block text-xs text-gray-600">
+                Hangs
+                <select
+                  value={material.visual.hang ?? "vertical"}
+                  onChange={async (e) => {
+                    setBusy(true);
+                    setError("");
+                    try {
+                      await setCabochonHang(material, e.target.value as "vertical" | "horizontal");
+                      await onChanged();
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Couldn't save how the stone hangs");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  disabled={busy}
+                  className={`${fieldClass} mt-1 bg-white`}
+                >
+                  <option value="vertical">Length runs up and down</option>
+                  <option value="horizontal">Length runs across the string</option>
                 </select>
               </label>
             )}

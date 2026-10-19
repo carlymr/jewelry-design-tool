@@ -183,9 +183,22 @@ export const BeadVisualSchema = z.object({
     .describe(
       "Cabochons and bezel settings only (null for everything else). Face outline of the stone, or of the recess a setting fits: 'oval' covers round and oval (the dimensions decide), 'rectangle' covers square/cushion/bar, 'teardrop' covers pear, 'marquise' for pointed-both-ends navettes, 'stalactite' for stalactite/agate slices (lumpy outline with concentric rings), 'trapiche' for trapiche slices (round-to-hexagonal with six radial spokes), 'freeform' for irregular cuts. Read it from a shape word in the name or the photo; null when unknown (drawn as oval)."
     ),
+  hang: z
+    .enum(["vertical", "horizontal"])
+    .nullable()
+    .describe(
+      "Cabochons only (null for everything else). How the stone hangs on the strand: 'vertical' = its length_mm runs up and down; 'horizontal' = its length_mm runs across the string. Null means vertical. Leave null unless the photo clearly shows the stone set the other way."
+    ),
 });
 
 export type BeadVisual = z.infer<typeof BeadVisualSchema>;
+
+/** Degrees the pendant drawing is turned on the board. A stone hangs with its
+ * stored length running vertically unless it is explicitly set horizontal;
+ * the length is never inferred from the size. */
+export function pendantTurn(visual: BeadVisual): 0 | 90 {
+  return visual.hang === "horizontal" ? 0 : 90;
+}
 
 function hexToHsl(hex: string): [number, number, number] {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());

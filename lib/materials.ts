@@ -77,14 +77,15 @@ export async function clearMaterialFace(material: Pick<Material, "id" | "face_pa
   if (material.face_path) await deleteMaterialFaces([material.face_path]).catch(() => {});
 }
 
-/** Turn a cabochon a quarter turn on the wire by swapping its stored length and
- * width. The face photo is left as taken, so the stone is made to match it. */
-export async function turnCabochon(material: Pick<Material, "id" | "visual">): Promise<void> {
+/** Set how a cabochon hangs: whether its stored length runs vertically or
+ * across the string. Sizes and the face photo are left alone. */
+export async function setCabochonHang(
+  material: Pick<Material, "id" | "visual">,
+  hang: "vertical" | "horizontal"
+): Promise<void> {
   const visual = material.visual;
   if (!visual) return;
-  await updateMaterial(material.id, {
-    visual: { ...visual, length_mm: visual.width_mm, width_mm: visual.length_mm },
-  });
+  await updateMaterial(material.id, { visual: { ...visual, hang } });
 }
 
 /** One material by id — for a surface that holds only a reference to it

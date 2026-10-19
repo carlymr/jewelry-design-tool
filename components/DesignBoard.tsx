@@ -28,7 +28,7 @@ import MaterialDetailModal from "@/components/MaterialDetail";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { ensureGenericMaterial, updateMaterial } from "@/lib/materials";
-import { faceUrlOf, PENDANT_FACE_TURN, useFaceUrls } from "@/lib/material-faces";
+import { faceUrlOf, useFaceUrls } from "@/lib/material-faces";
 import { GENERIC_BY_KIND, isGeneric, type GenericEntry } from "@/lib/generic-catalog";
 import { isLot } from "@/lib/lots";
 import GenericBadge from "@/components/GenericBadge";
@@ -40,6 +40,7 @@ import {
 } from "@/lib/designs";
 import {
   pendantAttachment,
+  pendantTurn,
   colorFamilyOf,
   sizeBucketOf,
   DRILL_LABELS,
@@ -1662,8 +1663,11 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 const box = setting
                   ? settingBoxPx(setting, pxPerMm, visual)
                   : { L: visual.length_mm * pxPerMm, W: visual.width_mm * pxPerMm };
-                const stoneW = box.W;
-                const stoneL = box.L;
+                // The stone's stored length runs down or across the string,
+                // as its hang says; the drop and the span follow from that.
+                const turn = pendantTurn(visual);
+                const stoneL = turn === 90 ? box.L : box.W;
+                const stoneW = turn === 90 ? box.W : box.L;
                 const bail = !setting && hasBail(visual);
                 const bailR = bail ? (CABOCHON_BAIL_MM / 2) * pxPerMm : 0;
                 // Undrilled (or unrecorded) stones have no hardware yet — a
@@ -1712,13 +1716,18 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                         strokeDasharray={bailDash ? `${bailR * 0.7} ${bailR * 0.5}` : undefined}
                       />
                     )}
-                    <g transform={`translate(${stoneW / 2}, ${stoneTop}) rotate(90)`}>
+                    {/* Centered on the drop: the drawing is turned as its hang
+                        says, and its face photo turned back by the same amount
+                        so the photo reads as it was taken. */}
+                    <g
+                      transform={`translate(0, ${stoneTop + stoneL / 2}) rotate(${turn}) translate(${-box.L / 2}, ${-box.W / 2})`}
+                    >
                       <Bead
                         visual={visual}
                         setting={setting}
                         pxPerMm={pxPerMm}
                         seed={p.material?.id ?? "missing"}
-                        face={faceUrlOf(p.material, faceUrls, PENDANT_FACE_TURN)}
+                        face={faceUrlOf(p.material, faceUrls, -turn)}
                       />
                     </g>
                   </g>

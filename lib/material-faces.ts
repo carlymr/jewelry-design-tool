@@ -13,11 +13,6 @@ export const MATERIAL_FACES_BUCKET = "material-faces";
 // so a board or inventory left open keeps its photos.
 const URL_REFRESH_MS = 50 * 60 * 1000;
 
-/** How far a pendant's drawing is turned on the board (see DesignBoard), in
- * degrees. A face photo drawn inside it is turned back by the same amount, so
- * the photo reads as it was taken. */
-export const PENDANT_FACE_TURN = 270;
-
 /** A face photo ready to draw: its display URL and how far to turn it, in
  * degrees, within the stone's own drawing. */
 export interface FaceImage {
