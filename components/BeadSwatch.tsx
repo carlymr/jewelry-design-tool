@@ -523,17 +523,21 @@ interface BeadProps {
    * element the size of `settingBoxPx`, stone centered in the recess.
    * Ignored unless `visual` is a cabochon. */
   setting?: BeadVisual | null;
+  /** Display URL of a cabochon's face photo (GRA-15). When set it replaces
+   * the generated pattern, clipped to the outline. Ignored for other shapes. */
+  face?: string | null;
 }
 
 /** The bead itself, as a <g> with its top-left at the origin. Memoized so
  * strand-wide re-renders (selection, caret moves) skip unchanged beads. */
-export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead", setting }: BeadProps) {
+export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead", setting, face }: BeadProps) {
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
   const L = Math.max(1, visual.length_mm * pxPerMm);
   const W = Math.max(1, visual.width_mm * pxPerMm);
   const c = visual.color;
   const gradId = `bg-${uid}`;
   const clipId = `bc-${uid}`;
+  const faceHref = visual.shape === "cabochon" ? face ?? null : null;
 
   if (setting && visual.shape === "cabochon" && setting.shape === "bezel") {
     // Stone in its setting: the metal rim drawn around the recess, with the
@@ -546,7 +550,7 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead", setting
         <defs>{finishGradient(metalId, setting)}</defs>
         {bezelFrame(setting.outline, box.L, box.W, sw, `url(#${metalId})`, seed)}
         <g transform={`translate(${(box.L - L) / 2}, ${(box.W - W) / 2})`}>
-          <Bead visual={visual} pxPerMm={pxPerMm} seed={seed} />
+          <Bead visual={visual} pxPerMm={pxPerMm} seed={seed} face={face} />
         </g>
       </g>
     );
@@ -703,13 +707,29 @@ export const Bead = memo(function Bead({ visual, pxPerMm, seed = "bead", setting
         strokeWidth={0.75}
       />
       <g clipPath={`url(#${clipId})`}>
-        {patternMarks}
-        {sliceOverlay}
-        {facetOverlay}
+        {faceHref ? (
+          // The photo is the stone's real face: it replaces the generated
+          // pattern, and its own highlights replace the gloss below.
+          <image
+            href={faceHref}
+            x={0}
+            y={0}
+            width={L}
+            height={W}
+            preserveAspectRatio="xMidYMid slice"
+          />
+        ) : (
+          <>
+            {patternMarks}
+            {sliceOverlay}
+            {facetOverlay}
+          </>
+        )}
       </g>
-      {(visual.finish === "glossy" ||
-        visual.finish === "pearl" ||
-        visual.finish === "transparent") && (
+      {!faceHref &&
+        (visual.finish === "glossy" ||
+          visual.finish === "pearl" ||
+          visual.finish === "transparent") && (
         <ellipse
           cx={L * 0.32}
           cy={W * 0.26}
@@ -731,6 +751,8 @@ interface BeadSwatchProps {
   className?: string;
   /** Bezel setting to frame a cabochon in; see `Bead`. */
   setting?: BeadVisual | null;
+  /** Face photo of a cabochon; see `Bead`. */
+  face?: string | null;
 }
 
 /** Standalone swatch for palettes and previews, scaled to fit `size`. */
@@ -740,6 +762,7 @@ export default function BeadSwatch({
   seed,
   className,
   setting,
+  face,
 }: BeadSwatchProps) {
   if (!visual) {
     return (
@@ -786,7 +809,7 @@ export default function BeadSwatch({
       className={className}
       overflow="visible"
     >
-      <Bead visual={visual} pxPerMm={pxPerMm} seed={seed} setting={composed} />
+      <Bead visual={visual} pxPerMm={pxPerMm} seed={seed} setting={composed} face={face} />
     </svg>
   );
 }

@@ -6,6 +6,12 @@ import BeadSwatch from "@/components/BeadSwatch";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
 import { LotPanel } from "@/components/LotSpecify";
 import { getMaterial, listLotItems, updateMaterial } from "@/lib/materials";
+import {
+  deleteMaterialFace,
+  faceUrlOf,
+  uploadMaterialFace,
+  useFaceUrls,
+} from "@/lib/material-faces";
 import { getOrder, receiptUrl } from "@/lib/orders";
 import { generateVisualForName } from "@/lib/visuals";
 import {
@@ -117,6 +123,107 @@ interface Props {
   onError: (message: string) => void;
 }
 
+/** A cabochon's face photo (GRA-15): the real stone, drawn clipped to its
+ * outline on the board. Writes straight to the row, like the camera button,
+ * so an upload is never left unrecorded. */
+function FacePhoto({
+  material,
+  faceUrl,
+  onChanged,
+  onError,
+}: {
+  material: Material;
+  faceUrl: string | null;
+  onChanged: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true);
+    onError("");
+    try {
+      await action();
+    } catch (e) {
+      onError(`"${material.name}": ${e instanceof Error ? e.message : "Couldn't update the face photo"}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // The old photo goes only after the row points at the new one, and the new
+  // one is removed again if the row never took it.
+  const replace = (file: File) =>
+    run(async () => {
+      const path = await uploadMaterialFace(material.id, file);
+      try {
+        await updateMaterial(material.id, { face_path: path });
+      } catch (e) {
+        await deleteMaterialFace(path).catch(() => {});
+        throw e;
+      }
+      if (material.face_path) await deleteMaterialFace(material.face_path).catch(() => {});
+      await onChanged();
+    });
+
+  const remove = () =>
+    run(async () => {
+      await updateMaterial(material.id, { face_path: null });
+      if (material.face_path) await deleteMaterialFace(material.face_path).catch(() => {});
+      await onChanged();
+    });
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-16 h-16 shrink-0 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center">
+        {faceUrl ? (
+          <img src={faceUrl} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <span className="text-[10px] text-gray-400 text-center leading-tight px-1">
+            {material.face_path ? "Loading…" : "No face photo"}
+          </span>
+        )}
+      </span>
+      <div className="flex flex-col gap-1 text-xs min-w-0">
+        <span className="text-gray-600">Face photo</span>
+        <span className="text-gray-400">
+          Drawn inside the stone&apos;s outline on the board. Frame the stone in the middle.
+        </span>
+        <div className="flex gap-2">
+          <button
+            onClick={() => inputRef.current?.click()}
+            disabled={busy}
+            className="px-2 py-1 border border-purple-300 rounded text-purple-700 hover:bg-purple-50 disabled:opacity-50"
+          >
+            {material.face_path ? "Replace" : "Upload"}
+          </button>
+          {material.face_path && (
+            <button
+              onClick={remove}
+              disabled={busy}
+              className="px-2 py-1 border border-gray-300 rounded text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Remove
+            </button>
+          )}
+        </div>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) replace(file);
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
 const fieldClass =
   "w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-purple-500 focus:border-purple-500 disabled:bg-gray-100";
 
@@ -138,6 +245,7 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
   const outlineTouched = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const faceUrls = useFaceUrls([material.face_path]);
   const generic = isGeneric(material);
   // The draft's flag, not the row's: relabeling happens as the box is ticked.
   const lot = form.is_lot;
@@ -305,7 +413,12 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex items-center gap-3 min-w-0">
             <span className="w-12 flex justify-center shrink-0">
-              <BeadSwatch visual={material.visual} size={44} seed={material.id} />
+              <BeadSwatch
+                visual={material.visual}
+                size={44}
+                seed={material.id}
+                face={faceUrlOf(material, faceUrls)}
+              />
             </span>
             <h2 className="text-base font-semibold text-gray-900 leading-snug">
               {material.name}
@@ -486,6 +599,15 @@ export default function MaterialDetailModal({ material, onClose, onChanged, onEr
               </label>
             )}
           </div>
+
+          {material.visual?.shape === "cabochon" && (
+            <FacePhoto
+              material={material}
+              faceUrl={faceUrlOf(material, faceUrls)}
+              onChanged={onChanged}
+              onError={setError}
+            />
+          )}
 
           {!generic && (
             <label

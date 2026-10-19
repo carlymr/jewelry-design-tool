@@ -28,6 +28,7 @@ import MaterialDetailModal from "@/components/MaterialDetail";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { ensureGenericMaterial, updateMaterial } from "@/lib/materials";
+import { faceUrlOf, useFaceUrls } from "@/lib/material-faces";
 import { GENERIC_BY_KIND, isGeneric, type GenericEntry } from "@/lib/generic-catalog";
 import { isLot } from "@/lib/lots";
 import GenericBadge from "@/components/GenericBadge";
@@ -265,6 +266,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     () => new Map(materials.map((m) => [m.id, m])),
     [materials]
   );
+  // Display URLs for cabochon face photos (GRA-15), shared by the strand and palette.
+  const faceUrls = useFaceUrls(materials.map((m) => m.face_path));
   const detailMaterial = detailId ? materialById.get(detailId) ?? null : null;
 
   // The bezel a placed cabochon sits in (GRA-29). A stale setting resolves
@@ -1279,7 +1282,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           }
         >
           <span className="w-9 flex justify-center shrink-0">
-            <BeadSwatch visual={m.visual} size={32} seed={m.id} />
+            <BeadSwatch visual={m.visual} size={32} seed={m.id} face={faceUrlOf(m, faceUrls)} />
           </span>
           <span className="min-w-0">
             <span className="block text-sm text-gray-900 leading-snug">{m.name}</span>
@@ -1580,7 +1583,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                         className="w-full flex items-center gap-3 px-2 py-1.5 rounded-md hover:bg-purple-50 text-left"
                       >
                         <span className="w-9 flex justify-center shrink-0">
-                          <BeadSwatch visual={s.visual} size={28} seed={s.id} />
+                          <BeadSwatch visual={s.visual} size={28} seed={s.id} face={faceUrlOf(s, faceUrls)} />
                         </span>
                         <span className="min-w-0">
                           <span className="block text-sm text-gray-900 truncate">{s.name}</span>
@@ -1715,6 +1718,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                         setting={setting}
                         pxPerMm={pxPerMm}
                         seed={p.material?.id ?? "missing"}
+                        face={faceUrlOf(p.material, faceUrls)}
                       />
                     </g>
                   </g>
@@ -1748,6 +1752,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                         visual={visual}
                         pxPerMm={pxPerMm}
                         seed={p.material?.id ?? "missing"}
+                        face={faceUrlOf(p.material, faceUrls)}
                       />
                     ) : (
                       <g>
