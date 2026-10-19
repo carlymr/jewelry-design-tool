@@ -10,6 +10,12 @@ export const CATEGORIES = [
   "Other",
 ] as const;
 
+/** Categories whose items can sit on a strand: what the board's palette
+ * offers (anything else with a generated visual is placeable too) and the
+ * default when specifying a material out of a lot. Wire/cord/tools stay
+ * inventory-only. */
+export const PLACEABLE_CATEGORIES = new Set<string>(["Beads", "Cabochons", "Findings"]);
+
 /** The categories actually present in a set of materials, in CATEGORIES order
  * with any unrecognized ones (free-text rows) appended alphabetically. Filter
  * dropdowns build their options from this so they never offer an empty choice. */
@@ -61,6 +67,15 @@ export interface Material {
   /** Catalog key when this row was seeded from lib/generic-catalog.ts (GRA-17);
    * null for an ordinary inventory row. Generics carry no stock. */
   generic_key: string | null;
+  /** An unitemized lot or assortment (GRA-36): a bag of mixed beads or a
+   * parcel of uncounted stones whose contents are specified later as
+   * separate rows. Never placed on the board; `quantity` × `unit_cost` is
+   * what the lot cost. */
+  is_lot: boolean;
+  /** The lot this row was specified out of, when it was (see lib/lots.ts). */
+  lot_id: string | null;
+  /** The slice of that lot's price this row took; null unless from a lot. */
+  lot_cost: number | null;
   /** Owner; null only on legacy rows created before auth (see migration 0005). */
   user_id: string | null;
   created_at: string;
@@ -69,12 +84,25 @@ export interface Material {
 
 export type NewMaterial = Omit<
   Material,
-  "id" | "created_at" | "updated_at" | "visual" | "user_id" | "order_id" | "source" | "generic_key"
+  | "id"
+  | "created_at"
+  | "updated_at"
+  | "visual"
+  | "user_id"
+  | "order_id"
+  | "source"
+  | "generic_key"
+  | "is_lot"
+  | "lot_id"
+  | "lot_cost"
 > & {
   visual?: BeadVisual | null;
   order_id?: string | null;
   source?: MaterialSource | null;
   generic_key?: string | null;
+  is_lot?: boolean;
+  lot_id?: string | null;
+  lot_cost?: number | null;
 };
 
 /** One line item extracted from a receipt by the API route. */
@@ -88,6 +116,9 @@ export interface ExtractedItem {
   unit_cost: number;
   visual: BeadVisual | null;
   source: MaterialSource;
+  /** The line is an unitemized lot/assortment (GRA-36): imported as one
+   * row to specify materials out of later, instead of guessed variants. */
+  lot: boolean;
 }
 
 /** The order header the receipt route reads off a receipt. */

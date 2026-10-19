@@ -34,11 +34,12 @@ Every placeable material gets a stored visual spec — shape, dimensions along/a
 ### Inventory
 
 - Searchable, sortable, paginated table with bead swatches, inline stock editing, and **color family / size filters**; generic findings placed from the design board show up here with a "generic" badge and no stock count (cost stays editable)
+- **Lots**: a bag of mixed beads or a parcel of uncounted cabochons imports as one "lot" row (its size and price as sold — 300 carat, 1 lb, 1 lot) instead of guessed variants. Once it's sorted, *specify* what it held from the lot's row: each material becomes an ordinary row that keeps the lot's receipt provenance and takes a slice of the lot's price (proportional by default; whatever isn't specified stays unallocated). Any row can be marked a lot after the fact
 - **Provenance**: every imported material remembers its order (platform, seller, order number, date), the listing title and variation text exactly as the receipt showed them, and the price paid — with a link to the archived receipt. Re-uploading a receipt updates the same rows instead of duplicating them
 - **Works on a phone**: rows become cards below tablet width, with a sort dropdown standing in for the column headers
 - **Full row editing**: fix a material's name, category, cost, or unit after import (sellers mislabel stones); renaming offers to regenerate the visual from the corrected name
-- **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries, estimating bead counts from strand lengths, resolving pick-your-stone cabochon selections (the variation code/dimensions, not the generic listing title), and naming bezel settings by the stone they fit and bails by finish and size — into an editable preview before importing
-- **CSV import/export** compatible with the original artifact tool (`Name, Category, Cost Per Unit, Unit, In Stock`)
+- **Receipt import**: upload a receipt image or PDF; Claude extracts line items — applying discounts, splitting assortments into per-variant entries (or flagging unitemized ones as lots), estimating bead counts from strand lengths, resolving pick-your-stone cabochon selections (the variation code/dimensions, not the generic listing title), and naming bezel settings by the stone they fit and bails by finish and size — into an editable preview before importing
+- **CSV import/export** compatible with the original artifact tool (`Name, Category, Cost Per Unit, Unit, In Stock`); generics and lots stay out of the export
 
 ### Pricing & listing
 
@@ -119,11 +120,13 @@ components/
   BeadSwatch.tsx               # SVG renderer for beads + strand components
   InventoryTable.tsx           # table, filters, pagination, CSV import/export
   ReceiptImport.tsx            # upload, extraction preview, import to DB
+  LotSpecify.tsx               # lot allocation panel + "specify a material from this lot" modal
   PhotoVisualButton.tsx        # camera button: photo → visual spec
   PricingStudio.tsx            # design costs, extras, labor/markup, listing
 lib/
   bead-visual.ts               # visual spec schema + color/size helpers
   generic-catalog.ts           # built-in findings catalog (jump rings, crimps, clasps…) seeded into materials on first use
+  lots.ts                      # lot helpers: isLot / lotPrice / lotAllocation (pure)
   visuals.ts                   # shared name→visual API call (board + inventory)
   strand-layout.ts             # as-worn geometry (bracelet circle / necklace drape)
   photo-upload.ts              # shared downscale + transient-upload helpers ({user_id}/{uuid} paths)
@@ -137,7 +140,7 @@ lib/
   orders.ts                    # order upsert, receipt archive upload + signed URLs
   settings.ts                  # per-user pricing/listing settings (user_settings table)
   etsy-server.ts / etsy.ts     # Etsy API + encrypted token storage (server) / route wrappers (client)
-supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance, api usage, generic_key, design photos bucket + status, Etsy connections)
+supabase/migrations/           # schema (materials, receipts bucket, designs, orders/provenance, api usage, generic_key, design photos bucket + status, Etsy connections, lots)
 ```
 
 Visual and listing generation use the Anthropic structured outputs API (`client.messages.parse` with Zod schemas); receipt extraction uses the same Zod-derived schema but streams the response (`client.messages.stream()`), so long receipts aren't capped by the non-streaming token budget. Results arrive as validated JSON either way.
