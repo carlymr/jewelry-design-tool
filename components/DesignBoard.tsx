@@ -2329,6 +2329,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           materials={materials}
           onClose={() => setImporting(false)}
           onImported={handleImported}
+          onMaterialsChanged={onMaterialsChanged}
         />
       )}
 

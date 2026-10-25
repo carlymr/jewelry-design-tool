@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import MaterialDetailModal from "@/components/MaterialDetail";
 import type { Design, Material } from "@/lib/types";
+import type { BeadVisual } from "@/lib/bead-visual";
 import { GENERIC_CATALOG, isGeneric } from "@/lib/generic-catalog";
 import { isLot } from "@/lib/lots";
-import {
-  genericsForIdentify,
-  inventoryForIdentify,
-  lotsForIdentify,
-} from "@/lib/identify";
+import { genericsForIdentify, inventoryForIdentify, lotsForIdentify } from "@/lib/identify";
 import {
   createImportedDesign,
   identifyPhotos,
@@ -20,20 +18,25 @@ import {
   type ReviewPlan,
 } from "@/lib/piece-import";
 
-// The photo import (GRA-12): photos and an optional description in, a
-// reviewed plan out, and a design created from it. The plan is the owner's to
-// correct before anything is written.
+// The photo import (GRA-12): photos and an optional description in, a reviewed
+// plan out, and a design created from it. The happy case is a piece whose
+// materials are all in the inventory already, so matched materials are the
+// main content and anything new is called out for the owner to decide.
 
 interface Props {
   materials: Material[];
   onClose: () => void;
   onImported: (design: Design, notice: string | null) => void;
+  onMaterialsChanged: () => Promise<void>;
 }
 
 const PHOTO_TIPS =
   "One flat photo of the whole strand with a ruler in the same plane works best. Close-ups are optional and help with small or similar beads.";
 
-export default function PieceImport({ materials, onClose, onImported }: Props) {
+const sizeLabel = (v: BeadVisual | null | undefined) =>
+  v ? `${v.length_mm} × ${v.width_mm} mm` : null;
+
+export default function PieceImport({ materials, onClose, onImported, onMaterialsChanged }: Props) {
   const [step, setStep] = useState<"capture" | "review">("capture");
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -41,23 +44,26 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
   const [error, setError] = useState("");
   const [plan, setPlan] = useState<ReviewPlan | null>(null);
   const [lengthText, setLengthText] = useState("");
+  // The material whose detail view is open, by id so it re-reads after a save.
+  const [viewingId, setViewingId] = useState<string | null>(null);
   // Materials created for the current plan, kept across a failed save so a
   // retry reuses them. Cleared whenever a new identification replaces the plan.
   const resolved = useRef<ResolvedMap>(new Map());
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Focus moves into the dialog on each step, and Escape closes it when no
-  // save or identification is running.
+  // Focus moves into the dialog on each step. Escape closes it when no save or
+  // identification is running and no detail view is open (that view handles
+  // its own Escape).
   useEffect(() => {
     panelRef.current?.focus();
   }, [step]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) onClose();
+      if (e.key === "Escape" && !busy && !viewingId) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [busy, onClose]);
+  }, [busy, viewingId, onClose]);
 
   // Object URLs are made in the effect, not during render, so strict mode's
   // mount-unmount-mount doesn't revoke URLs that are still on screen.
@@ -69,11 +75,13 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
   }, [files]);
 
   const lots = useMemo(() => materials.filter((m) => isLot(m)), [materials]);
-  const byId = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials]);
-  const genericByKey = useMemo(
-    () => new Map(GENERIC_CATALOG.map((e) => [e.key, e])),
-    []
+  const inventory = useMemo(
+    () => materials.filter((m) => !isLot(m) && !isGeneric(m)),
+    [materials]
   );
+  const byId = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials]);
+  const genericByKey = useMemo(() => new Map(GENERIC_CATALOG.map((e) => [e.key, e])), []);
+  const viewing = viewingId ? byId.get(viewingId) ?? null : null;
 
   const identify = async () => {
     setBusy(true);
@@ -106,28 +114,15 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
       }
     );
 
-  // Swatch colour for a material, from its visual or its catalog entry.
-  const colorFor = (m: ReviewMaterial): string | undefined => {
-    if (m.matchId) return byId.get(m.matchId)?.visual?.color;
-    if (m.genericKey) return genericByKey.get(m.genericKey)?.visual.color;
-    return m.visual?.color;
-  };
-
-  const activeMaterials = plan?.materials.filter((m) => !m.removed) ?? [];
-  const unresolved = activeMaterials.filter((m) => !isResolvable(m));
   const lengthIn = parseFloat(lengthText);
   const lengthOk = Number.isFinite(lengthIn) && lengthIn > 0 && lengthIn < 100;
-  const canCreate = !!plan && unresolved.length === 0 && lengthOk && !busy;
 
-  const assignAllNewToLot = (lotId: string) => {
-    if (!plan || !lotId) return;
-    setPlan({
-      ...plan,
-      materials: plan.materials.map((m) =>
-        !m.matchId && !m.genericKey && m.visual && !m.removed ? { ...m, lotId } : m
-      ),
-    });
-  };
+  // Matched and catalog materials are the happy path; everything else is new
+  // and needs a decision before the design can be created.
+  const existing = plan?.materials.filter((m) => m.matchId || m.genericKey) ?? [];
+  const fresh = plan?.materials.filter((m) => !m.matchId && !m.genericKey) ?? [];
+  const unresolved = (plan?.materials ?? []).filter((m) => !m.removed && !isResolvable(m));
+  const canCreate = !!plan && unresolved.length === 0 && lengthOk && !busy;
 
   const create = async () => {
     if (!plan) return;
@@ -249,8 +244,14 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
         )}
 
         {step === "review" && plan && (
-          <div className="space-y-5 p-5">
-            <div className="flex flex-wrap items-end gap-4">
+          <div className="space-y-6 p-5">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <p className="text-sm text-gray-700">
+                {plan.strand.length} elements · {existing.length} from your inventory
+                {fresh.length > 0 && (
+                  <span className="font-medium text-amber-800"> · {fresh.length} new</span>
+                )}
+              </p>
               <label className="text-sm text-gray-700">
                 Length (inches)
                 <input
@@ -258,91 +259,65 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
                   step="0.25"
                   value={lengthText}
                   onChange={(e) => setLengthText(e.target.value)}
+                  aria-invalid={!lengthOk}
                   className={`ml-2 w-24 rounded-md border px-2 py-1 ${
                     lengthOk ? "border-gray-300" : "border-red-400"
                   }`}
                 />
               </label>
-              {lots.length > 0 && (
-                <label className="text-sm text-gray-700">
-                  Take new beads from lot
-                  <select
-                    value=""
-                    onChange={(e) => assignAllNewToLot(e.target.value)}
-                    className="ml-2 rounded-md border border-gray-300 px-2 py-1"
-                  >
-                    <option value="">Choose a lot…</option>
-                    {lots.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
             </div>
 
-            <div className="flex gap-4">
-              {files.length > 0 && (
-                <div className="shrink-0 space-y-2">
-                  {previews.map((src) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img key={src} src={src} alt="" className="h-28 w-28 rounded object-cover" />
-                  ))}
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="mb-2 text-sm font-medium text-gray-700">
-                  Strand, {plan.strand.length} elements
-                  {plan.materials.some((m) => m.removed) &&
-                    ` (${plan.materials.filter((m) => m.removed).length} material${
-                      plan.materials.filter((m) => m.removed).length === 1 ? "" : "s"
-                    } removed)`}
+            {fresh.length === 0 && (
+              <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-900">
+                Every material on this piece is already in your inventory.
+              </p>
+            )}
+
+            {existing.length > 0 && (
+              <section aria-labelledby="matched-heading" className="space-y-2">
+                <h3 id="matched-heading" className="text-sm font-semibold text-gray-900">
+                  From your inventory
+                </h3>
+                {existing.map((m) => (
+                  <MatchedRow
+                    key={m.ref}
+                    material={m}
+                    row={m.matchId ? byId.get(m.matchId) ?? null : null}
+                    genericName={m.genericKey ? genericByKey.get(m.genericKey)?.name : undefined}
+                    inventory={inventory}
+                    onView={setViewingId}
+                    onChange={(change) => updateMaterial(m.ref, change)}
+                  />
+                ))}
+              </section>
+            )}
+
+            {fresh.length > 0 && (
+              <section aria-labelledby="new-heading" className="space-y-2">
+                <h3 id="new-heading" className="text-sm font-semibold text-amber-900">
+                  Not in your inventory yet
+                </h3>
+                <p className="text-xs text-gray-600">
+                  These are created when you confirm. Check each one, or pick the existing material it is.
                 </p>
-                <ol className="flex flex-wrap gap-1.5">
-                  {plan.strand.map((ref, i) => {
-                    const m = plan.materials.find((x) => x.ref === ref);
-                    return (
-                      <li
-                        key={`${ref}-${i}`}
-                        title={m?.name ?? ref}
-                        aria-label={`Element ${i + 1}: ${m?.name ?? ref}${m?.removed ? ", removed" : ""}`}
-                        className={`flex items-center gap-1 rounded border border-gray-200 px-1.5 py-0.5 text-xs text-gray-700 ${
-                          m?.removed ? "line-through opacity-40" : ""
-                        }`}
-                      >
-                        <span
-                          className="inline-block h-3 w-3 rounded-full border border-gray-300"
-                          style={{ backgroundColor: (m && colorFor(m)) || "#d1d5db" }}
-                        />
-                        {i + 1}
-                      </li>
-                    );
-                  })}
-                </ol>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-gray-700">Materials</p>
-              {plan.materials.map((m) => (
-                <MaterialRow
-                  key={m.ref}
-                  material={m}
-                  color={colorFor(m)}
-                  matchName={m.matchId ? byId.get(m.matchId)?.name : undefined}
-                  genericName={m.genericKey ? genericByKey.get(m.genericKey)?.name : undefined}
-                  lots={lots}
-                  inventory={materials.filter((x) => !isLot(x) && !isGeneric(x))}
-                  onChange={(change) => updateMaterial(m.ref, change)}
-                />
-              ))}
-            </div>
+                {fresh.map((m) => (
+                  <NewRow
+                    key={m.ref}
+                    material={m}
+                    lots={lots}
+                    lotRow={m.lotId ? byId.get(m.lotId) ?? null : null}
+                    inventory={inventory}
+                    onView={setViewingId}
+                    onChange={(change) => updateMaterial(m.ref, change)}
+                  />
+                ))}
+              </section>
+            )}
 
             {unresolved.length > 0 && (
               <p className="text-sm text-amber-800">
-                {unresolved.length} material{unresolved.length === 1 ? "" : "s"} still need a pick
-                from your inventory before the design can be created.
+                {unresolved.length} material{unresolved.length === 1 ? "" : "s"} need a pick from your
+                inventory before the design can be created.
               </p>
             )}
             {error && <p className="text-sm text-red-700">{error}</p>}
@@ -368,28 +343,216 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
           </div>
         )}
       </div>
+
+      {viewing && (
+        <MaterialDetailModal
+          material={viewing}
+          onClose={() => setViewingId(null)}
+          onChanged={onMaterialsChanged}
+          onError={setError}
+        />
+      )}
     </div>
   );
 }
 
-function MaterialRow({
+function RemoveToggle({
+  removed,
+  onChange,
+}: {
+  removed: boolean;
+  onChange: (change: Partial<ReviewMaterial>) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange({ removed: !removed })}
+      className="text-xs text-gray-600 underline hover:text-gray-900"
+    >
+      {removed ? "Restore" : "Leave out of this design"}
+    </button>
+  );
+}
+
+/** A material the owner already has. Name, category and size are shown so the
+ * match can be checked at a glance; "View details" opens the inventory row. */
+function MatchedRow({
   material: m,
-  color,
-  matchName,
+  row,
   genericName,
-  lots,
   inventory,
+  onView,
   onChange,
 }: {
   material: ReviewMaterial;
-  color: string | undefined;
-  matchName: string | undefined;
+  row: Material | null;
   genericName: string | undefined;
-  lots: Material[];
   inventory: Material[];
+  onView: (id: string) => void;
   onChange: (change: Partial<ReviewMaterial>) => void;
 }) {
   const [picking, setPicking] = useState(false);
+  const color = row?.visual?.color ?? "#d1d5db";
+  const title = row?.name ?? genericName ?? m.name;
+  const detail = row
+    ? [row.category, sizeLabel(row.visual)].filter(Boolean).join(" · ")
+    : "Catalog finding";
+
+  return (
+    <div
+      className={`rounded-md border p-3 ${
+        m.removed ? "border-dashed border-gray-300 opacity-60" : "border-gray-200"
+      }`}
+    >
+      <div className="flex flex-wrap items-center gap-3">
+        <span
+          className="inline-block h-5 w-5 shrink-0 rounded-full border border-gray-300"
+          style={{ backgroundColor: color }}
+        />
+        <div className="min-w-0 flex-1">
+          <p className={`truncate text-sm font-medium text-gray-900 ${m.removed ? "line-through" : ""}`}>
+            {title}
+          </p>
+          <p className="text-xs text-gray-500">{detail}</p>
+        </div>
+        {row && (
+          <button
+            type="button"
+            onClick={() => onView(row.id)}
+            className="rounded-md border border-gray-300 px-2.5 py-1 text-xs text-gray-800 hover:bg-gray-50"
+          >
+            View details
+          </button>
+        )}
+        {!m.genericKey && (
+          <button
+            type="button"
+            onClick={() => setPicking((p) => !p)}
+            className="text-xs text-gray-700 underline"
+          >
+            {picking ? "Close" : "Change"}
+          </button>
+        )}
+        <RemoveToggle removed={m.removed} onChange={onChange} />
+      </div>
+
+      {picking && (
+        <ExistingPicker
+          inventory={inventory}
+          onChoose={(id) => {
+            onChange({ matchId: id, lotId: null, genericKey: null });
+            setPicking(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** A material the inventory doesn't have yet: created on confirm, unless the
+ * owner picks an existing row or takes it from a lot. */
+function NewRow({
+  material: m,
+  lots,
+  lotRow,
+  inventory,
+  onView,
+  onChange,
+}: {
+  material: ReviewMaterial;
+  lots: Material[];
+  lotRow: Material | null;
+  inventory: Material[];
+  onView: (id: string) => void;
+  onChange: (change: Partial<ReviewMaterial>) => void;
+}) {
+  const [picking, setPicking] = useState(false);
+  const color = m.visual?.color ?? "#d1d5db";
+
+  return (
+    <div
+      className={`rounded-md border p-3 ${
+        m.removed ? "border-dashed border-gray-300 opacity-60" : "border-amber-300 bg-amber-50/40"
+      }`}
+    >
+      <div className="flex flex-wrap items-center gap-3">
+        <span
+          className="inline-block h-5 w-5 shrink-0 rounded-full border border-gray-300"
+          style={{ backgroundColor: color }}
+        />
+        <input
+          value={m.name}
+          onChange={(e) => onChange({ name: e.target.value })}
+          className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-sm"
+          aria-label="Material name"
+        />
+        <span className="text-xs text-gray-600">
+          {m.kind}
+          {sizeLabel(m.visual) ? ` · ${sizeLabel(m.visual)}` : ""}
+          {m.confidence === "low" ? " · check this" : ""}
+        </span>
+        <RemoveToggle removed={m.removed} onChange={onChange} />
+      </div>
+
+      {!m.removed && (
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-700">
+          {lots.length > 0 && (
+            <select
+              value={m.lotId ?? ""}
+              onChange={(e) => onChange({ lotId: e.target.value || null })}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs"
+              aria-label="Take from lot"
+            >
+              <option value="">Not from a lot</option>
+              {lots.map((l) => (
+                <option key={l.id} value={l.id}>
+                  From {l.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {lotRow && (
+            <button
+              type="button"
+              onClick={() => onView(lotRow.id)}
+              className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs text-gray-800 hover:bg-gray-50"
+            >
+              View lot
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setPicking((p) => !p)}
+            className="text-xs text-gray-700 underline"
+          >
+            {picking ? "Close" : "Use an existing material instead"}
+          </button>
+          {!m.visual && (
+            <span className="text-amber-800">No visual yet: pick an existing material.</span>
+          )}
+        </div>
+      )}
+
+      {picking && (
+        <ExistingPicker
+          inventory={inventory}
+          onChoose={(id) => {
+            onChange({ matchId: id, lotId: null, genericKey: null });
+            setPicking(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ExistingPicker({
+  inventory,
+  onChoose,
+}: {
+  inventory: Material[];
+  onChoose: (id: string) => void;
+}) {
   const [query, setQuery] = useState("");
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -397,135 +560,32 @@ function MaterialRow({
     return inventory.filter((x) => x.name.toLowerCase().includes(q)).slice(0, 8);
   }, [query, inventory]);
 
-  const choose = (id: string) => {
-    onChange({ matchId: id, lotId: null, genericKey: null });
-    setPicking(false);
-    setQuery("");
-  };
-
-  if (m.removed) {
-    return (
-      <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-gray-300 p-3 text-sm text-gray-500">
-        <span className="min-w-0 flex-1 line-through">{m.name}</span>
-        <span>Removed from the strand</span>
-        <button
-          type="button"
-          onClick={() => onChange({ removed: false })}
-          className="text-xs text-gray-800 underline"
-        >
-          Restore
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="rounded-md border border-gray-200 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span
-          className="inline-block h-4 w-4 shrink-0 rounded-full border border-gray-300"
-          style={{ backgroundColor: color || "#d1d5db" }}
-        />
-        <input
-          value={m.name}
-          onChange={(e) => onChange({ name: e.target.value })}
-          className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-1 text-sm"
-          aria-label="Material name"
-        />
-        <span className="text-xs text-gray-500">{m.kind}</span>
-        {m.confidence === "low" && (
-          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
-            check this
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={() => onChange({ removed: true })}
-          className="text-xs text-gray-600 hover:text-red-700"
-        >
-          Remove from strand
-        </button>
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-700">
-        {m.matchId && (
-          <>
-            <span>Using your {matchName ?? "material"}</span>
-            <button
-              type="button"
-              onClick={() => onChange({ matchId: null, visual: m.visual })}
-              disabled={!m.visual}
-              className="text-xs text-gray-600 underline disabled:opacity-40"
-              title={m.visual ? "Create this as a new material instead" : "No visual to create from"}
-            >
-              Create new instead
-            </button>
-          </>
-        )}
-        {m.genericKey && <span>Catalog finding: {genericName ?? m.genericKey}</span>}
-        {!m.matchId && !m.genericKey && m.visual && (
-          <>
-            <span>New material</span>
-            {lots.length > 0 && (
-              <select
-                value={m.lotId ?? ""}
-                onChange={(e) => onChange({ lotId: e.target.value || null })}
-                className="rounded-md border border-gray-300 px-2 py-1 text-xs"
-                aria-label="Take from lot"
+    <div className="mt-2">
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search your inventory"
+        aria-label="Search your inventory"
+        autoFocus
+        className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+      />
+      {query.trim() && (
+        <ul className="mt-1 divide-y divide-gray-100 rounded-md border border-gray-200 bg-white">
+          {results.length === 0 && <li className="px-2 py-1 text-xs text-gray-500">No matches</li>}
+          {results.map((x) => (
+            <li key={x.id}>
+              <button
+                type="button"
+                onClick={() => onChoose(x.id)}
+                className="flex w-full items-center justify-between px-2 py-1 text-left text-sm hover:bg-gray-50"
               >
-                <option value="">Not from a lot</option>
-                {lots.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    From {l.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </>
-        )}
-        {!m.matchId && !m.genericKey && !m.visual && (
-          <span className="text-amber-800">No match and no visual yet</span>
-        )}
-
-        {!m.genericKey && (
-          <button
-            type="button"
-            onClick={() => setPicking((p) => !p)}
-            className="text-xs text-gray-700 underline"
-          >
-            {picking ? "Close" : m.matchId ? "Change match" : "Use an existing material"}
-          </button>
-        )}
-      </div>
-
-      {picking && (
-        <div className="mt-2">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search your inventory"
-            autoFocus
-            className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-          />
-          {query.trim() && (
-            <ul className="mt-1 divide-y divide-gray-100 rounded-md border border-gray-200">
-              {results.length === 0 && (
-                <li className="px-2 py-1 text-xs text-gray-500">No matches</li>
-              )}
-              {results.map((x) => (
-                <li key={x.id}>
-                  <button
-                    type="button"
-                    onClick={() => choose(x.id)}
-                    className="w-full px-2 py-1 text-left text-sm hover:bg-gray-50"
-                  >
-                    {x.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+                <span>{x.name}</span>
+                <span className="text-xs text-gray-500">{x.category}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
