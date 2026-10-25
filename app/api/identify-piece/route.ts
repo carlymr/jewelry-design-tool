@@ -4,6 +4,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { authorizedUser, isOwnUpload } from "@/lib/api-token";
 import { getSupabaseConfig } from "@/lib/supabase-config";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { NAMING_CONVENTION } from "@/lib/naming";
 import {
   IdentifyRequestSchema,
   IdentifyResponseSchema,
@@ -45,9 +46,13 @@ PHOTOS: the first photo is normally the full strand, flat, often with a ruler fo
 WHAT TO REPORT
 - "materials": one entry per distinct material: each bead type, each stone or pendant, each spacer, and any hardware strung between the beads (bails, ring connectors, metal spacers). Do not list the clasp or the chain at the ends. A pendant or focal stone is kind "stone"; other beads are "bead"; hardware is "hardware".
 - Give each material a short unique "ref" such as "m1".
+- A material is one stone or bead type. If the strand mixes stones or colors (for example tiger's eye and red jasper beads of one size), report each stone as its own material. Never write one name that combines them, and never use "Mixed", "Assorted", a slash, or "or".
+- If you cannot tell two similar stones apart, name the one you are more confident of, give it confidence "low", and leave the other out of the name.
 - "strand": the ref of every element in order from one end of the strand to the other, repeating a ref each time that material appears. Count carefully, including repeats and mirrored halves. Use only refs from "materials".
 - "strand_length_in": the end-to-end length in inches, from the ruler or the description when given, else null.
 
+NAMING (the same standard the receipt import uses)
+${NAMING_CONVENTION}
 FOR EACH MATERIAL, CHOOSE ONE OF THREE OUTCOMES
 1. Same as an owned inventory item (same stone family, shape and size): set matched_material_id to that item's id. Match only when you are confident. Look-alikes such as tiger iron vs tiger's eye, or jasper vs agate, are different materials.
 2. A generic finding in the catalog (jump rings, crimp beads, spacer balls, lobster or toggle clasps): set generic_key to its key.

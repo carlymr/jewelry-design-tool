@@ -7,6 +7,7 @@ import type { Design, Material } from "@/lib/types";
 import type { BeadVisual } from "@/lib/bead-visual";
 import { GENERIC_CATALOG, isGeneric } from "@/lib/generic-catalog";
 import { isLot } from "@/lib/lots";
+import { namingIssue } from "@/lib/naming";
 import { genericsForIdentify, inventoryForIdentify, lotsForIdentify } from "@/lib/identify";
 import {
   createImportedDesign,
@@ -545,7 +546,11 @@ function NewRow({
         <input
           value={m.name}
           onChange={(e) => onChange({ name: e.target.value })}
-          className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-sm"
+          aria-invalid={!!namingIssue(m.name)}
+          aria-describedby={namingIssue(m.name) ? `${m.ref}-naming` : undefined}
+          className={`min-w-0 flex-1 rounded-md border bg-white px-2 py-1 text-sm ${
+            namingIssue(m.name) ? "border-amber-500" : "border-gray-300"
+          }`}
           aria-label="Material name"
         />
         <span className="text-xs text-gray-600">
@@ -555,6 +560,12 @@ function NewRow({
         </span>
         <RemoveToggle removed={m.removed} onChange={onChange} />
       </div>
+
+      {!m.removed && namingIssue(m.name) && (
+        <p id={`${m.ref}-naming`} className="mt-2 text-xs text-amber-800">
+          {namingIssue(m.name)}
+        </p>
+      )}
 
       {!m.removed && (
         <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-700">
