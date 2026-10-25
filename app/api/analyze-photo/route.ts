@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
 
     const client = new Anthropic();
     const response = await client.messages.parse({
-      model: "claude-opus-4-8",
+      model: "claude-opus-5-5",
       max_tokens: 4000,
       thinking: { type: "adaptive" },
       messages: [
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
           ],
         },
       ],
-      output_config: { format: zodOutputFormat(ResponseSchema) },
+      output_config: { effort: "high", format: zodOutputFormat(ResponseSchema) },
     });
 
     if (response.stop_reason === "refusal") {

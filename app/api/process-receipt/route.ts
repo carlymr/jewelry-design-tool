@@ -301,7 +301,7 @@ export async function POST(request: NextRequest) {
     // finalMessage() with an AnthropicError (handled in the catch below).
     const response = await client.messages
       .stream({
-        model: "claude-opus-4-8",
+        model: "claude-opus-5-5",
         max_tokens: 64000,
         thinking: { type: "adaptive" },
         messages: [
@@ -310,7 +310,7 @@ export async function POST(request: NextRequest) {
             content: [fileBlock, { type: "text", text: EXTRACTION_PROMPT }],
           },
         ],
-        output_config: { format: zodOutputFormat(ReceiptExtractionSchema) },
+        output_config: { effort: "high", format: zodOutputFormat(ReceiptExtractionSchema) },
       })
       .finalMessage();
 
