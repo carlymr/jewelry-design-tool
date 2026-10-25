@@ -265,6 +265,17 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
 
         {step === "review" && plan && (
           <div className="space-y-6 p-5">
+            <label className="block text-sm text-gray-700">
+              Design name
+              <input
+                value={plan.name}
+                onChange={(e) => setPlan({ ...plan, name: e.target.value })}
+                maxLength={120}
+                placeholder="e.g. Moonstone and tourmaline necklace"
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+
             <div className="flex flex-wrap items-end justify-between gap-4">
               <p className="text-sm text-gray-700">
                 {plan.strand.length} elements · {existing.length} from your inventory

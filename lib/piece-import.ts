@@ -36,6 +36,8 @@ export interface ReviewPlan {
   materials: ReviewMaterial[];
   strand: string[];
   lengthIn: number;
+  /** The design's name, as the owner types it in review. */
+  name: string;
   description: string | null;
   /** Strand entries the model sent that named no material. */
   droppedRefs: number;
@@ -73,6 +75,7 @@ export function planFromResult(result: IdentifyResult, description: string | nul
     })),
     strand: result.strand,
     lengthIn: result.strand_length_in ?? DEFAULT_LENGTH_IN,
+    name: "",
     description,
     droppedRefs: result.dropped_refs,
   };
@@ -197,11 +200,6 @@ export function beadsFromPlan(
   return { beads, skipped };
 }
 
-export function designNameFor(description: string | null): string {
-  const trimmed = description?.trim();
-  return trimmed ? trimmed.slice(0, 60) : "Imported piece";
-}
-
 /** Create the design from a resolved plan, then keep the photos on it. The
  * design row is created before its photos because the photo folder is keyed by
  * design id. A photo failure leaves the design in place and is reported. */
@@ -212,7 +210,7 @@ export async function createImportedDesign(
 ): Promise<{ design: Design; photoError: string | null; skipped: number }> {
   const { beads, skipped } = beadsFromPlan(plan, resolved);
   const design = await createDesign({
-    name: designNameFor(plan.description),
+    name: plan.name.trim().slice(0, 120) || "Imported piece",
     target_length_mm: Math.round(plan.lengthIn * MM_PER_INCH * 100) / 100,
     beads,
     status: "finished",
