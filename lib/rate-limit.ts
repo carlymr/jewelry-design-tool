@@ -15,13 +15,15 @@ export type AiRoute =
   | "process-receipt"
   | "generate-visuals"
   | "generate-listing"
-  | "analyze-photo";
+  | "analyze-photo"
+  | "identify-piece";
 
 /** Calls per rolling hour across every AI route. */
 export const HOURLY_LIMIT = 60;
 /** Tighter per-route caps; anything not listed falls under HOURLY_LIMIT only. */
 export const ROUTE_HOURLY_LIMITS: Partial<Record<AiRoute, number>> = {
   "process-receipt": 20,
+  "identify-piece": 20,
 };
 
 const ROUTE_LABELS: Partial<Record<AiRoute, string>> = {

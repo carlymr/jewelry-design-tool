@@ -25,6 +25,7 @@ import BeadSwatch, { Bead, settingBoxPx } from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
 import SearchField from "@/components/SearchField";
 import MaterialDetailModal from "@/components/MaterialDetail";
+import PieceImport from "@/components/PieceImport";
 import { useSession } from "@/components/AuthGate";
 import { apiHeaders } from "@/lib/auth";
 import { ensureGenericMaterial, updateMaterial } from "@/lib/materials";
@@ -247,6 +248,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   const pinned = pins.ids;
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importNotice, setImportNotice] = useState("");
   const [generating, setGenerating] = useState(false);
   // Which material's detail modal is open (id, so a post-save refresh flows
   // straight into the open modal instead of leaving it on a stale object).
@@ -1029,6 +1032,23 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     if (design) loadDesign(design);
   };
 
+  // A design made from a photo (GRA-12) is saved already, so it opens as the
+  // current design; the owner's unsaved changes to the old one are checked
+  // before the dialog opens, not after the import has been created.
+  const openImport = () => {
+    if (dirty && !confirm("Discard unsaved changes to the current design?")) return;
+    setImportNotice("");
+    setImporting(true);
+  };
+
+  const handleImported = (design: Design, notice: string | null) => {
+    setImporting(false);
+    setDesigns((prev) => [design, ...prev.filter((d) => d.id !== design.id)]);
+    loadDesign(design);
+    setImportNotice(notice ?? "");
+    onMaterialsChanged();
+  };
+
   const newDesign = (skipConfirm = false) => {
     if (!skipConfirm && dirty && !confirm("Discard unsaved changes to the current design?"))
       return;
@@ -1386,6 +1406,13 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          onClick={openImport}
+          className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50"
+        >
+          From photo…
+        </button>
         <input
           type="text"
           value={name}
@@ -1530,6 +1557,19 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
           <p className="text-red-700 text-sm">{error}</p>
+        </div>
+      )}
+
+      {importNotice && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex justify-between gap-3">
+          <p className="text-amber-900 text-sm">{importNotice}</p>
+          <button
+            type="button"
+            onClick={() => setImportNotice("")}
+            className="text-xs text-amber-900 underline"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -2279,6 +2319,14 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
           </>
         )}
       </div>
+
+      {importing && (
+        <PieceImport
+          materials={materials}
+          onClose={() => setImporting(false)}
+          onImported={handleImported}
+        />
+      )}
 
       {detailMaterial && (
         <MaterialDetailModal
