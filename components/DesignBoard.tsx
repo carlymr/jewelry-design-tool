@@ -62,6 +62,7 @@ import {
   makeSymmetric,
   mirroredDelete,
   mirroredInsert,
+  mirroredMove,
   reflectGap,
   sameStrand,
   type FoldCenter,
@@ -918,6 +919,17 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
     // Gaps inside or immediately after the block mean "didn't move".
     const at = gap <= d.start ? gap : gap > d.end + 1 ? gap - block.length : d.start;
     if (at === d.start) return;
+    // Mirror mode moves the block's reflection too, so a palindrome stays
+    // one (GRA-51); a block holding the axis has no separate reflection.
+    const mirrored = mirror ? mirroredMove(beads, d.start, d.end, gap) : null;
+    if (mirrored) {
+      // Swapping a block with its own reflection changes nothing: no step.
+      if (JSON.stringify(mirrored.beads) === JSON.stringify(beads)) return;
+      mutateBeads(mirrored.beads);
+      setSelection({ anchor: mirrored.start, focus: mirrored.start + block.length - 1 });
+      setInsertion(mirrored.start + block.length);
+      return;
+    }
     const rest = [...beads.slice(0, d.start), ...beads.slice(d.end + 1)];
     rest.splice(at, 0, ...block);
     mutateBeads(rest);
@@ -1972,7 +1984,7 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                     ? "bg-purple-100 border-purple-300 text-purple-700 font-medium"
                     : "bg-white border-gray-300 hover:bg-gray-100"
                 }`}
-                title="Mirror edits around the strand's center (M) — build to the right of the pendant; drag isn't mirrored"
+                title="Mirror edits around the strand's center (M) — build to the right of the pendant"
               >
                 <FlipHorizontal2 className="w-4 h-4 mr-1" />
                 Mirror
@@ -2096,7 +2108,8 @@ export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
                 </dl>
                 <p className="mt-2 text-gray-500">
                   In mirror mode, Backspace removes the bead and its mirror, and
-                  drag isn&apos;t mirrored.
+                  dragging moves the mirror too (except the center bead, which
+                  moves alone).
                 </p>
               </div>
             )}

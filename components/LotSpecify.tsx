@@ -1,16 +1,16 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { PackagePlus, X } from "lucide-react";
+import { X } from "lucide-react";
 import { specifyFromLot, updateMaterial } from "@/lib/materials";
 import { generateVisualForName } from "@/lib/visuals";
-import { lotAllocation, lotPrice, toCents } from "@/lib/lots";
+import { lotAllocation, lotItemName, lotPrice, toCents } from "@/lib/lots";
 import { CATEGORIES, PLACEABLE_CATEGORIES, type Material } from "@/lib/types";
 
 // Lots (GRA-36). A lot row is a bag of unsorted stock; this file holds the
 // two surfaces that turn it into inventory: the panel that shows what has
-// been specified out of it so far (inventory row expansion and the detail
-// modal), and the modal that specifies one more material from it.
+// been specified out of it so far (in the detail modal), and the modal that
+// specifies one more material from it.
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 
@@ -19,13 +19,10 @@ const money = (n: number) => `$${n.toFixed(2)}`;
 export function LotPanel({
   lot,
   items,
-  onSpecify,
 }: {
   lot: Material;
   /** Rows with `lot_id === lot.id` (any extra rows are ignored). */
   items: Material[];
-  /** Offered as a button when the surface can open the specify modal. */
-  onSpecify?: () => void;
 }) {
   const alloc = lotAllocation(lot, items);
   const own = items.filter((m) => m.lot_id === lot.id);
@@ -41,14 +38,6 @@ export function LotPanel({
         <span className={alloc.over ? "text-red-600 font-medium" : ""}>
           · {alloc.over ? `over-allocated by ${money(alloc.allocated - alloc.price)}` : `${money(alloc.remaining)} unallocated`}
         </span>
-        {onSpecify && (
-          <button
-            onClick={onSpecify}
-            className="ml-auto inline-flex items-center gap-1 text-teal-700 hover:underline"
-          >
-            <PackagePlus className="w-3 h-3" /> Specify a material
-          </button>
-        )}
       </div>
       {own.length > 0 && (
         <ul className="text-gray-700 space-y-0.5">
@@ -103,7 +92,7 @@ interface Props {
  * allocated — most of a mixed bag never is. */
 export default function LotSpecifyModal({ lot, items, onClose, onCreated, onError }: Props) {
   const emptyDraft = (): Draft => ({
-    name: "",
+    name: lotItemName(lot.name),
     category: PLACEABLE_CATEGORIES.has(lot.category) ? lot.category : "Beads",
     quantity: "1",
     unit_type: "piece",
@@ -259,6 +248,11 @@ export default function LotSpecifyModal({ lot, items, onClose, onCreated, onErro
               className={`${fieldClass} mt-1`}
               ref={nameRef}
               autoFocus
+              // Caret after the prefilled name, ready to add a size or shape.
+              onFocus={(e) => {
+                const end = e.currentTarget.value.length;
+                e.currentTarget.setSelectionRange(end, end);
+              }}
             />
           </label>
           <div className="grid grid-cols-2 gap-3">

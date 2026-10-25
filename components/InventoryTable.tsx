@@ -10,19 +10,17 @@ import {
   ChevronLeft,
   ChevronRight,
   Pencil,
-  Info,
   PackagePlus,
 } from "lucide-react";
 import BeadSwatch from "@/components/BeadSwatch";
 import BeadFilters from "@/components/BeadFilters";
 import SearchField from "@/components/SearchField";
 import PhotoVisualButton from "@/components/PhotoVisualButton";
-import MaterialDetailModal, { SourcePanel } from "@/components/MaterialDetail";
-import LotSpecifyModal, { LotPanel } from "@/components/LotSpecify";
+import MaterialDetailModal from "@/components/MaterialDetail";
+import LotSpecifyModal from "@/components/LotSpecify";
 import LotBadge from "@/components/LotBadge";
 import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
 import { faceUrlOf, useFaceUrls } from "@/lib/material-faces";
-import { listOrders } from "@/lib/orders";
 import { colorFamilyOf, formatSizeMm, sizeBucketOf } from "@/lib/bead-visual";
 import { isGeneric } from "@/lib/generic-catalog";
 import { isFromLot, isLot, lotAllocation, lotPrice } from "@/lib/lots";
@@ -32,7 +30,6 @@ import {
   presentCategories,
   type Material,
   type NewMaterial,
-  type Order,
 } from "@/lib/types";
 
 type SortKey = "name" | "category" | "unit_cost" | "quantity";
@@ -73,27 +70,6 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const csvInputRef = useRef<HTMLInputElement>(null);
-  // Provenance: which row's source panel is open, and the orders to show in it.
-  const [sourceOpenId, setSourceOpenId] = useState<string | null>(null);
-  const [orders, setOrders] = useState<Map<string, Order>>(new Map());
-  // Orders only change when materials start pointing at new ones, so key the
-  // fetch off the set of referenced order ids — not every stock edit.
-  const orderIdsKey = useMemo(
-    () => Array.from(new Set(materials.map((m) => m.order_id).filter(Boolean))).sort().join(","),
-    [materials]
-  );
-  useEffect(() => {
-    let stale = false;
-    listOrders()
-      .then((rows) => {
-        if (!stale) setOrders(new Map(rows.map((o) => [o.id, o])));
-      })
-      .catch(() => {});
-    return () => {
-      stale = true;
-    };
-  }, [orderIdsKey]);
-
   const byId = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials]);
   const detail = detailId ? byId.get(detailId) ?? null : null;
   const specify = specifyId ? byId.get(specifyId) ?? null : null;
@@ -547,24 +523,6 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                 )}
               </div>
               <div className="col-span-12 md:col-span-2 flex justify-end md:justify-center items-center gap-1">
-                {(material.source ||
-                  material.order_id ||
-                  isLot(material) ||
-                  isFromLot(material)) && (
-                  <button
-                    onClick={() =>
-                      setSourceOpenId(sourceOpenId === material.id ? null : material.id)
-                    }
-                    className={`p-2 md:p-1 rounded hover:text-purple-600 ${
-                      sourceOpenId === material.id ? "text-purple-600" : "text-gray-500"
-                    }`}
-                    title="Where this came from"
-                    aria-label="Show source"
-                    aria-expanded={sourceOpenId === material.id}
-                  >
-                    <Info className="w-4 h-4" />
-                  </button>
-                )}
                 {isLot(material) && (
                   <button
                     onClick={() => setSpecifyId(material.id)}
@@ -604,25 +562,6 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
-              {sourceOpenId === material.id && (
-                <div className="col-span-12 mt-1 space-y-1">
-                  {(material.source || material.order_id || isFromLot(material)) && (
-                    <SourcePanel
-                      material={material}
-                      order={material.order_id ? orders.get(material.order_id) : undefined}
-                      lot={material.lot_id ? byId.get(material.lot_id) : undefined}
-                      onError={setError}
-                    />
-                  )}
-                  {isLot(material) && (
-                    <LotPanel
-                      lot={material}
-                      items={lotItems.get(material.id) ?? []}
-                      onSpecify={() => setSpecifyId(material.id)}
-                    />
-                  )}
-                </div>
-              )}
             </div>
         ))}
 
