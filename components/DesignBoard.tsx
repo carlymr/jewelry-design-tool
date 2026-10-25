@@ -50,6 +50,15 @@ import {
 } from "@/lib/bead-visual";
 import { curveGeometry, curvePath } from "@/lib/strand-layout";
 import {
+  beadLengthMm,
+  beadWidthMm,
+  CABOCHON_ADVANCE_MM,
+  CABOCHON_BAIL_MM,
+  FALLBACK_BEAD_MM,
+  hasBail,
+  isPendant,
+} from "@/lib/strand-spacing";
+import {
   FIT_SLACK_MM,
   faceAxes,
   fits,
@@ -81,8 +90,6 @@ import {
 const MM_PER_INCH = 25.4;
 // CSS reference pixel: 96px per inch, so this renders beads at ~life size.
 const ACTUAL_PX_PER_MM = 96 / MM_PER_INCH;
-// Beads without a generated visual still need to advance the strand somehow.
-const FALLBACK_BEAD_MM = 6;
 // Standard jewelry lengths; anything else via the Custom… option.
 const LENGTH_PRESETS: { in: number; label?: string }[] = [
   { in: 6 },
@@ -136,29 +143,6 @@ interface Props {
   onMaterialsChanged: () => Promise<void>;
 }
 
-// A cabochon is worn as a pendant: it hangs below the string from a bail and
-// advances the strand by only the bail's width, not the stone's size. The
-// exception is a center-drilled stone, which strings inline like a bead.
-const CABOCHON_ADVANCE_MM = 6;
-const CABOCHON_BAIL_MM = 4;
-
-// Cabochons (unless center-drilled) and bezel settings hang below the string.
-const isPendant = (v: BeadVisual | null | undefined) => {
-  const a = pendantAttachment(v);
-  return a !== null && a !== "inline";
-};
-// Wire-hung pendants have no ring; the rest hang from a bail (real, or a
-// placeholder standing in for the setting an undrilled stone still needs).
-const hasBail = (v: BeadVisual) => pendantAttachment(v) !== "wire";
-
-const beadLengthMm = (m: Material | undefined) =>
-  isPendant(m?.visual)
-    ? CABOCHON_ADVANCE_MM
-    : m?.visual?.length_mm ?? FALLBACK_BEAD_MM;
-const beadWidthMm = (m: Material | undefined) =>
-  isPendant(m?.visual)
-    ? CABOCHON_ADVANCE_MM
-    : m?.visual?.width_mm ?? FALLBACK_BEAD_MM;
 
 export default function DesignBoard({ materials, onMaterialsChanged }: Props) {
   // Drafts are namespaced per account so nothing leaks between sign-ins on

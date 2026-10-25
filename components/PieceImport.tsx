@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import MaterialDetailModal from "@/components/MaterialDetail";
+import StrandPreview, { type PreviewElement } from "@/components/StrandPreview";
 import type { Design, Material } from "@/lib/types";
 import type { BeadVisual } from "@/lib/bead-visual";
 import { GENERIC_CATALOG, isGeneric } from "@/lib/generic-catalog";
@@ -46,6 +47,8 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
   const [lengthText, setLengthText] = useState("");
   // The material whose detail view is open, by id so it re-reads after a save.
   const [viewingId, setViewingId] = useState<string | null>(null);
+  // The photos become the design's listing photos unless the owner unticks this.
+  const [keepPhotos, setKeepPhotos] = useState(true);
   // Materials created for the current plan, kept across a failed save so a
   // retry reuses them. Cleared whenever a new identification replaces the plan.
   const resolved = useRef<ResolvedMap>(new Map());
@@ -82,6 +85,23 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
   const byId = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials]);
   const genericByKey = useMemo(() => new Map(GENERIC_CATALOG.map((e) => [e.key, e])), []);
   const viewing = viewingId ? byId.get(viewingId) ?? null : null;
+
+  // What each strand element will look like: the owner's own row for a match,
+  // the catalog visual for a finding, otherwise the model's proposal.
+  const previewElements = useMemo<PreviewElement[]>(() => {
+    if (!plan) return [];
+    const byRef = new Map(plan.materials.map((m) => [m.ref, m]));
+    return plan.strand.flatMap((ref, i) => {
+      const m = byRef.get(ref);
+      if (!m || m.removed) return [];
+      const visual =
+        (m.matchId ? byId.get(m.matchId)?.visual : null) ??
+        (m.genericKey ? genericByKey.get(m.genericKey)?.visual : null) ??
+        m.visual ??
+        null;
+      return [{ key: `${ref}-${i}`, visual }];
+    });
+  }, [plan, byId, genericByKey]);
 
   const identify = async () => {
     setBusy(true);
@@ -134,7 +154,7 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
       const { design, photoError, skipped } = await createImportedDesign(
         nextPlan,
         resolved.current,
-        files
+        keepPhotos ? files : []
       );
       const notes = [
         skipped > 0 ? `${skipped} strand element${skipped === 1 ? "" : "s"} left out` : null,
@@ -267,6 +287,21 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
               </label>
             </div>
 
+            <section aria-labelledby="preview-heading" className="space-y-2">
+              <h3 id="preview-heading" className="text-sm font-semibold text-gray-900">
+                Preview as worn ({lengthOk ? lengthIn : plan.lengthIn} in)
+              </h3>
+              <div className="rounded-md border border-gray-200 bg-stone-50 p-3">
+                <StrandPreview
+                  elements={previewElements}
+                  targetMm={(lengthOk ? lengthIn : plan.lengthIn) * 25.4}
+                />
+              </div>
+              <p className="text-xs text-gray-500">
+                A quick picture to check the piece looks right. The board draws the same strand.
+              </p>
+            </section>
+
             {fresh.length === 0 && (
               <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-900">
                 Every material on this piece is already in your inventory.
@@ -319,6 +354,22 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
                 {unresolved.length} material{unresolved.length === 1 ? "" : "s"} need a pick from your
                 inventory before the design can be created.
               </p>
+            )}
+            {files.length > 0 && (
+              <label className="flex items-start gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={keepPhotos}
+                  onChange={(e) => setKeepPhotos(e.target.checked)}
+                  className="mt-1"
+                />
+                <span>
+                  Keep these photos as the design&apos;s listing photos
+                  <span className="block text-xs text-gray-500">
+                    The first photo becomes the primary listing photo. Untick to discard them.
+                  </span>
+                </span>
+              </label>
             )}
             {error && <p className="text-sm text-red-700">{error}</p>}
 
