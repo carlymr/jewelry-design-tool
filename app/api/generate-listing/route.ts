@@ -235,11 +235,11 @@ Write an SEO-optimized title, a detailed description (materials, dimensions, car
 
     const client = new Anthropic();
     const response = await client.messages.parse({
-      model: "claude-opus-4-8",
+      model: "claude-opus-5-5",
       max_tokens: 4000,
       thinking: { type: "adaptive" },
       messages: [{ role: "user", content: [...photos, { type: "text", text: prompt }] }],
-      output_config: { format: zodOutputFormat(ListingSchema) },
+      output_config: { effort: "high", format: zodOutputFormat(ListingSchema) },
     });
 
     if (response.stop_reason === "refusal") {
