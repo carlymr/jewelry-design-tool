@@ -69,8 +69,13 @@ import {
   type FoldCenter,
   type Side,
 } from "@/lib/mirror";
-import { presentCategories, type Design, type DesignBead, type Material,
+import {
+  MAX_BEADS,
   PLACEABLE_CATEGORIES,
+  presentCategories,
+  type Design,
+  type DesignBead,
+  type Material,
 } from "@/lib/types";
 
 const MM_PER_INCH = 25.4;
@@ -78,7 +83,6 @@ const MM_PER_INCH = 25.4;
 const ACTUAL_PX_PER_MM = 96 / MM_PER_INCH;
 // Beads without a generated visual still need to advance the strand somehow.
 const FALLBACK_BEAD_MM = 6;
-const MAX_BEADS = 500;
 // Standard jewelry lengths; anything else via the Custom… option.
 const LENGTH_PRESETS: { in: number; label?: string }[] = [
   { in: 6 },

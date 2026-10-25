@@ -41,8 +41,23 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
   const [error, setError] = useState("");
   const [plan, setPlan] = useState<ReviewPlan | null>(null);
   const [lengthText, setLengthText] = useState("");
-  // Materials created so far, kept across a failed save so a retry reuses them.
+  // Materials created for the current plan, kept across a failed save so a
+  // retry reuses them. Cleared whenever a new identification replaces the plan.
   const resolved = useRef<ResolvedMap>(new Map());
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Focus moves into the dialog on each step, and Escape closes it when no
+  // save or identification is running.
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, [step]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, onClose]);
 
   // Object URLs are made in the effect, not during render, so strict mode's
   // mount-unmount-mount doesn't revoke URLs that are still on screen.
@@ -72,6 +87,7 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
         genericsForIdentify()
       );
       const next = planFromResult(result, description.trim() || null);
+      resolved.current.clear();
       setPlan(next);
       setLengthText(String(next.lengthIn));
       setStep("review");
@@ -104,11 +120,11 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
   const canCreate = !!plan && unresolved.length === 0 && lengthOk && !busy;
 
   const assignAllNewToLot = (lotId: string) => {
-    if (!plan) return;
+    if (!plan || !lotId) return;
     setPlan({
       ...plan,
       materials: plan.materials.map((m) =>
-        !m.matchId && !m.genericKey && m.visual && !m.removed ? { ...m, lotId: lotId || null } : m
+        !m.matchId && !m.genericKey && m.visual && !m.removed ? { ...m, lotId } : m
       ),
     });
   };
@@ -119,8 +135,7 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
     setError("");
     try {
       const nextPlan = { ...plan, lengthIn };
-      const lotRows = lots;
-      await resolveMaterials(nextPlan, lotRows, resolved.current);
+      await resolveMaterials(nextPlan, lots, resolved.current);
       const { design, photoError, skipped } = await createImportedDesign(
         nextPlan,
         resolved.current,
@@ -132,8 +147,11 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
       ].filter(Boolean);
       onImported(design, notes.length ? notes.join(". ") : null);
     } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not create the design.";
       setError(
-        `${e instanceof Error ? e.message : "Could not create the design."} Materials created so far are kept, so retrying won't duplicate them.`
+        resolved.current.size > 0
+          ? `${message} Materials already created are kept. Press Create design to try again. Changing a material's choice creates a new one.`
+          : `${message} Press Create design to try again.`
       );
     } finally {
       setBusy(false);
@@ -145,11 +163,15 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Create a design from a photo"
+      aria-labelledby="piece-import-title"
     >
-      <div className="w-full max-w-4xl max-h-[90vh] overflow-auto rounded-lg bg-white shadow-xl">
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="w-full max-w-4xl max-h-[90vh] overflow-auto rounded-lg bg-white shadow-xl focus:outline-none"
+      >
         <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3">
-          <h2 className="text-lg font-semibold text-gray-900">
+          <h2 id="piece-import-title" className="text-lg font-semibold text-gray-900">
             {step === "capture" ? "Create a design from a photo" : "Check the materials"}
           </h2>
           <button
@@ -207,14 +229,21 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
             {error && <p className="text-sm text-red-700">{error}</p>}
 
             <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={identify}
-                disabled={files.length === 0 || busy}
-                className="rounded-md bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50"
-              >
-                {busy ? "Identifying…" : "Identify materials"}
-              </button>
+              <div className="flex flex-col items-end">
+                <button
+                  type="button"
+                  onClick={identify}
+                  disabled={files.length === 0 || busy}
+                  className="rounded-md bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+                >
+                  {busy ? "Identifying…" : "Identify materials"}
+                </button>
+                {busy && (
+                  <p role="status" className="mt-2 text-right text-xs text-gray-600">
+                    Identifying your photos. This can take up to a minute.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -238,11 +267,11 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
                 <label className="text-sm text-gray-700">
                   Take new beads from lot
                   <select
-                    defaultValue=""
+                    value=""
                     onChange={(e) => assignAllNewToLot(e.target.value)}
                     className="ml-2 rounded-md border border-gray-300 px-2 py-1"
                   >
-                    <option value="">None</option>
+                    <option value="">Choose a lot…</option>
                     {lots.map((l) => (
                       <option key={l.id} value={l.id}>
                         {l.name}
@@ -265,6 +294,10 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
               <div className="min-w-0 flex-1">
                 <p className="mb-2 text-sm font-medium text-gray-700">
                   Strand, {plan.strand.length} elements
+                  {plan.materials.some((m) => m.removed) &&
+                    ` (${plan.materials.filter((m) => m.removed).length} material${
+                      plan.materials.filter((m) => m.removed).length === 1 ? "" : "s"
+                    } removed)`}
                 </p>
                 <ol className="flex flex-wrap gap-1.5">
                   {plan.strand.map((ref, i) => {
@@ -273,6 +306,7 @@ export default function PieceImport({ materials, onClose, onImported }: Props) {
                       <li
                         key={`${ref}-${i}`}
                         title={m?.name ?? ref}
+                        aria-label={`Element ${i + 1}: ${m?.name ?? ref}${m?.removed ? ", removed" : ""}`}
                         className={`flex items-center gap-1 rounded border border-gray-200 px-1.5 py-0.5 text-xs text-gray-700 ${
                           m?.removed ? "line-through opacity-40" : ""
                         }`}
@@ -369,6 +403,22 @@ function MaterialRow({
     setQuery("");
   };
 
+  if (m.removed) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-gray-300 p-3 text-sm text-gray-500">
+        <span className="min-w-0 flex-1 line-through">{m.name}</span>
+        <span>Removed from the strand</span>
+        <button
+          type="button"
+          onClick={() => onChange({ removed: false })}
+          className="text-xs text-gray-800 underline"
+        >
+          Restore
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-md border border-gray-200 p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -393,7 +443,7 @@ function MaterialRow({
           onClick={() => onChange({ removed: true })}
           className="text-xs text-gray-600 hover:text-red-700"
         >
-          Remove
+          Remove from strand
         </button>
       </div>
 

@@ -8,6 +8,7 @@ Built with Next.js, Supabase, and the Anthropic API; deploys to Vercel.
 
 ### Design board (home page)
 
+- **Create a design from a photo** of a finished piece: the materials and strand order are proposed for review (From photo… in the toolbar)
 - **True-to-scale strand layout** with an inch ruler and a target-length marker (bracelet and necklace presets from 6" to 20")
 - **Zoom modes**: fit-to-screen (default), 1:1 real size, or manual zoom
 - **As-worn view**: toggle between the straight editing strand and how the piece actually lies — a closed circle for bracelet lengths, a hanging drape for necklaces — with pendants hanging true and selection/drag still live
@@ -100,7 +101,7 @@ After the first deploy, set the **Site URL** (and redirect URL) in Supabase → 
 
 **Note:** receipt files are uploaded directly to a private Supabase Storage bucket (`receipts`) rather than through the API route, sidestepping Vercel's ~4.5MB request-body cap. Uploads land under the signed-in user's own folder (`{user_id}/{uuid}.ext`), which the bucket policies (migration `0011`) and the route both enforce. The route downloads the file server-side, processes it, and deletes it. Files up to 20MB are supported; large photos are downscaled client-side.
 
-The AI routes are rate-limited per user (60 calls/hour across all AI features, 20/hour for receipt processing) through the `record_ai_call` function from migration `0012`. If that migration isn't applied yet the routes log the failure and allow the call, so it can be added at any time.
+The AI routes are rate-limited per user (60 calls/hour across all AI features, 20/hour each for receipt processing and photo import) through the `record_ai_call` function from migration `0012`. If that migration isn't applied yet the routes log the failure and allow the call, so it can be added at any time.
 
 ## Architecture
 
@@ -113,6 +114,7 @@ app/
   api/generate-visuals/route.ts# name-only visual generation (batch fallback)
   api/generate-listing/route.ts# Etsy listing draft from a design's composition
   api/analyze-photo/route.ts   # photo-accurate visual spec for one material
+  api/identify-piece/route.ts  # materials and strand order from photos of a finished piece (GRA-12)
   api/etsy/*/route.ts          # Etsy connect (OAuth/PKCE), shop options, draft publishing
   etsy/callback/page.tsx       # where Etsy returns after the seller approves the app
 components/

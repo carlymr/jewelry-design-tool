@@ -80,9 +80,10 @@ export interface IdentifyResult {
 }
 
 /** Check every id the model returns against the lists it was given. Anything
- * unknown is cleared, so a hallucinated id can never reach the database. The
- * catalog visual is used for generics, and an inventory match never carries
- * a visual, since the owner's row already has one. */
+ * unknown is cleared, so a hallucinated id can never reach the database. Every
+ * material keeps its visual: the review can use it to create a match as a new
+ * material, and resolveMaterials ignores it when a match or catalog entry is
+ * set. */
 export function sanitizeIdentification(
   raw: z.infer<typeof IdentifyResponseSchema>,
   known: { inventoryIds: Set<string>; lotIds: Set<string>; genericKeys: Set<string> }
@@ -98,7 +99,7 @@ export function sanitizeIdentification(
       matched_material_id: matched,
       generic_key: generic,
       lot_id: lot,
-      visual: !matched && !generic && m.visual ? normalizeOrientation(m.visual) : null,
+      visual: m.visual ? normalizeOrientation(m.visual) : null,
     };
   });
 

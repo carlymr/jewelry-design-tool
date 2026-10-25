@@ -3,7 +3,7 @@ import { getUserId } from "./auth";
 import type { Material, MaterialSource, NewMaterial } from "./types";
 import type { GenericEntry } from "./generic-catalog";
 import { toCents } from "./lots";
-import type { StoneTurn } from "./bead-visual";
+import type { BeadVisual, StoneTurn } from "./bead-visual";
 import { deleteMaterialFaces, uploadMaterialFace } from "./material-faces";
 
 export async function listMaterials(): Promise<Material[]> {
@@ -120,14 +120,16 @@ export interface LotItemInput {
   unit_type: string;
   /** The slice of the lot's price this item takes; unit_cost derives from it. */
   lot_cost: number;
+  /** The visual, when the item is already identified (GRA-12). */
+  visual?: BeadVisual | null;
 }
 
 /** Specify a material out of a lot: an ordinary row that inherits the lot's
  * order provenance (same order, same verbatim listing line — that IS where
  * it came from) and points back at the lot, so pricing and the source panel
- * can trace it. unit_cost is the allocated cost spread over the quantity;
- * the visual is left for the caller to fill (lib/visuals.ts) so a failed AI
- * call can't lose the row. */
+ * can trace it. unit_cost is the allocated cost spread over the quantity.
+ * The visual, when given, goes in the same insert so a failure can't leave a
+ * row without one. */
 export async function specifyFromLot(lot: Material, item: LotItemInput): Promise<Material> {
   if (!lot.is_lot) throw new Error("That material is not a lot");
   const lot_cost = toCents(item.lot_cost);
@@ -143,6 +145,7 @@ export async function specifyFromLot(lot: Material, item: LotItemInput): Promise
       source: lot.source,
       lot_id: lot.id,
       lot_cost,
+      visual: item.visual ?? null,
     },
   ]);
   if (!row) throw new Error("Could not create the material");

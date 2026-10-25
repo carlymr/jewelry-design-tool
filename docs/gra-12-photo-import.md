@@ -1,6 +1,6 @@
 # GRA-12: create a design from a photo of a finished piece
 
-Status: v1 implemented on `carly/gra-12-upload-designs-from-real-life`, not yet committed. Builds clean. Not yet run in the browser (needs a signed-in session), and migration 0018 is not yet applied to the live project.
+Status: v1 implemented in PR #37 (`carly/gra-12-upload-designs-from-real-life`). Migration 0018 is applied to the live project. Builds clean. Not yet tested in the browser (needs a signed-in session).
 
 ## Goal
 
@@ -29,9 +29,9 @@ Findings:
 
 - **Input:** an optional one-sentence description, encouraged with a placeholder example, plus one full-strand photo, flat, with a ruler in the same plane. Up to four photos total; close-ups are optional.
 - **Scope:** bezels are out of v1.
-- **Detail level:** each distinct bead, stone or pendant type is its own material (stone family, shape, size). Hardware that the generic catalog covers (jump rings, crimps, spacer balls, lobster and toggle clasps) is placed from the catalog with no inventory row. Other hardware (bails, ring connectors, chain, wire) becomes a new material on confirm.
+- **Detail level:** each distinct bead, stone or pendant type is its own material (stone family, shape, size). Hardware that the generic catalog covers (jump rings, crimps, spacer balls, lobster and toggle clasps) is placed from the catalog. Its row is created on confirm if it doesn't exist yet, and no inventory pick is needed. Other hardware (bails, ring connectors, chain, wire) becomes a new material on confirm.
 - **New materials:** created on confirm with no cost and zero stock, so the owner sets stock before stringing.
-- **Lots:** the owner imports a lot first through the receipt flow. In review, an unmatched element can be assigned to an existing lot. That goes through the same path as specifying a material from a lot, so provenance and the lot's remaining value stay correct. The lot's cost slice is left at zero for the owner to fill in later. Suggested lots are ranked by name. Automatic lot flagging in receipt extraction is tracked as GRA-52.
+- **Lots:** the owner imports a lot first through the receipt flow. In review, an unmatched element can be assigned to an existing lot. That goes through the same path as specifying a material from a lot, so provenance and the lot's remaining value stay correct. The lot's cost slice is left at zero for the owner to fill in later. All unsplit lots (name and listing title) go to the model, which suggests one only when the listing clearly fits. Automatic lot flagging in receipt extraction is tracked as GRA-52.
 - **Review:** a search-and-swap, not a form. The photo is shown beside the proposed strand. Corrections happen per material (match, new, lot, rename, remove). Element order is fixed in review and corrected on the board.
 
 ## Flow
@@ -69,7 +69,7 @@ Response:
     visual,                                // BeadVisual for new non-generic items, else null
     confidence: "high" | "medium" | "low"
   }],
-  strand: [{ ref }],                       // one end to the other; excludes clasp and chain
+  strand: string[],                        // refs, one end to the other; excludes clasp and chain
   strand_length_in: number | null,
   dropped_refs: number                     // strand refs that didn't resolve to a material
 }
@@ -88,11 +88,10 @@ Server-side checks (`sanitizeIdentification` in `lib/identify.ts`): ids, lot ids
 
 - `npm run build` passes (type check included).
 - One real identify call on a listing with two photos, the route's prompt and response schema, and the sanitizer: the structured output parsed (34 s), 7 distinct materials, 92 strand elements, no dropped refs, length 18 in.
-- Not verified: the browser flow, saving a design, lot linking against real lots, and the rate limit (it fails open until 0018 is applied).
+- Not verified: the browser flow, saving a design, and lot linking against real lots. The rate limit is active, since 0018 is applied.
 
 ## Open items
 
-- Apply migration 0018 to the live project.
 - Browser test with a signed-in session: identify, review, create, and retry after a forced failure.
 - Real-piece test: a few pieces the owner knows the sources for, including one lot-derived piece, plus a flat ruler photo. This would settle the lot suggestion rate and the photo guidance.
 - Whether the description placeholder should suggest a format.

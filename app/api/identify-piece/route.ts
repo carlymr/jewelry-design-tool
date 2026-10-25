@@ -49,14 +49,16 @@ WHAT TO REPORT
 - "strand_length_in": the end-to-end length in inches, from the ruler or the description when given, else null.
 
 FOR EACH MATERIAL, CHOOSE ONE OF THREE OUTCOMES
-1. Same as an owned inventory item (same stone family, shape and size): set matched_material_id to that item's id, and visual null. Match only when you are confident. Look-alikes such as tiger iron vs tiger's eye, or jasper vs agate, are different materials.
-2. A generic finding in the catalog (jump rings, crimp beads, spacer balls, lobster or toggle clasps): set generic_key to its key, and visual null.
-3. Otherwise a new material: set visual to the physical spec of one element, and matched_material_id, generic_key and lot_id null.
+1. Same as an owned inventory item (same stone family, shape and size): set matched_material_id to that item's id. Match only when you are confident. Look-alikes such as tiger iron vs tiger's eye, or jasper vs agate, are different materials.
+2. A generic finding in the catalog (jump rings, crimp beads, spacer balls, lobster or toggle clasps): set generic_key to its key.
+3. Otherwise a new material: matched_material_id and generic_key null.
+- Whatever the outcome, set visual to the physical spec of one element (see below). The owner may decide a match is really a different material, and then the spec is used.
 - If a new material is clearly from one of the unsplit lots below, set lot_id to that lot's id; otherwise null. Lots hold bulk stones, so only set it when the listing clearly fits.
 - Never invent ids or keys. Use only the ids and keys listed.
 
-VISUAL SPEC (new materials)
+VISUAL SPEC
 - Sizes: use the ruler, the pendant or a stated size. length_mm runs along the stringing hole; width_mm is the visible diameter across it.
+- A chain element is always one 1-inch segment: length_mm is 25.4.
 - Cabochons and bezels: set outline to the face shape (oval, rectangle, triangle, pentagon, hexagon, teardrop, marquise, stalactite, trapiche or freeform). Null for other shapes.
 - Components: use the component shapes ('chain', 'jump-ring', 'lobster-clasp', 'toggle-clasp', 'connector', 'figure-eight', 'triangle', 'cabochon', 'bezel', 'bail').
 - Read color, finish, pattern and faceting from the photos, and prefer what you see over what the name implies.
@@ -76,14 +78,6 @@ export async function POST(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
-  const limited = await enforceRateLimit(request, "identify-piece");
-  if (limited) return limited;
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY is not configured on the server." },
-      { status: 500 }
-    );
-  }
 
   let body: IdentifyRequest;
   try {
@@ -94,19 +88,29 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
-  if (!body.photos.every((p) => isOwnUpload(p.path, user.id, IMAGE_EXTENSIONS))) {
-    return NextResponse.json({ error: "Invalid storage path." }, { status: 400 });
-  }
 
+  // The photos are already uploaded by now, so every path from here on must
+  // remove them, including the early returns below.
   const storage = storageConfig(request.headers.get("authorization"));
-  if (!storage) {
-    return NextResponse.json(
-      { error: "Supabase is not configured on the server." },
-      { status: 500 }
-    );
-  }
-
   try {
+    const limited = await enforceRateLimit(request, "identify-piece");
+    if (limited) return limited;
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return NextResponse.json(
+        { error: "ANTHROPIC_API_KEY is not configured on the server." },
+        { status: 500 }
+      );
+    }
+    if (!body.photos.every((p) => isOwnUpload(p.path, user.id, IMAGE_EXTENSIONS))) {
+      return NextResponse.json({ error: "Invalid storage path." }, { status: 400 });
+    }
+    if (!storage) {
+      return NextResponse.json(
+        { error: "Supabase is not configured on the server." },
+        { status: 500 }
+      );
+    }
+
     const images = [];
     for (const photo of body.photos) {
       const download = await fetch(`${storage.objectUrl}/${photo.path}`, {
@@ -177,13 +181,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   } finally {
     // Photos are transient: remove every one, whatever the outcome.
-    await Promise.all(
-      body.photos.map((photo) =>
-        fetch(`${storage.objectUrl}/${photo.path}`, {
-          method: "DELETE",
-          headers: storage.headers,
-        }).catch(() => {})
-      )
-    );
+    if (storage) {
+      await Promise.all(
+        body.photos.map((photo) =>
+          fetch(`${storage.objectUrl}/${photo.path}`, {
+            method: "DELETE",
+            headers: storage.headers,
+          }).catch(() => {})
+        )
+      );
+    }
   }
 }

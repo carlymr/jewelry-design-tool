@@ -6,15 +6,14 @@ import { createDesign, updateDesign } from "./designs";
 import { uploadDesignPhoto } from "./design-photos";
 import { uploadForProcessing } from "./photo-upload";
 import type { IdentifyMaterial, IdentifyRequest, IdentifyResult } from "./identify";
-import type { Design, DesignBead, Material } from "./types";
+import { MAX_BEADS, type Design, type DesignBead, type Material } from "./types";
 
 const MM_PER_INCH = 25.4;
 
 // Client side of the photo import (GRA-12): sends the photos to identify, and
-// turns the owner's reviewed plan into materials and a design. Creation is
-// ordered so a failure part-way leaves nothing ambiguous behind: each material
-// is resolved once, and the caller keeps the resolved ids so a retry reuses
-// them instead of creating duplicates.
+// turns the owner's reviewed plan into materials and a design. Each material is
+// created once per decision; the caller keeps the resolved rows so a retry
+// after a failed save reuses them instead of creating duplicates.
 
 export type ReviewMaterial = {
   ref: string;
@@ -27,7 +26,8 @@ export type ReviewMaterial = {
   genericKey: string | null;
   /** A lot to take this new material out of, when it is one. */
   lotId: string | null;
-  /** The visual for a new material; null when the model gave none. */
+  /** The visual the model proposed. Used for a new material; for a match it
+   * is kept so "Create new instead" has something to create from. */
   visual: BeadVisual | null;
   removed: boolean;
 };
@@ -37,17 +37,26 @@ export interface ReviewPlan {
   strand: string[];
   lengthIn: number;
   description: string | null;
+  /** Strand entries the model sent that named no material. */
+  droppedRefs: number;
 }
 
-export const DEFAULT_LENGTH_IN = 7;
+const DEFAULT_LENGTH_IN = 7;
 
 /** Materials already created for this plan, keyed by ref. `sig` records the
  * decision that produced the row, so a retry reuses it only when the owner's
- * choice is unchanged. */
-export type ResolvedMap = Map<string, { id: string; sig: string }>;
+ * choice is unchanged; `name` lets a rename reach the row instead of making a
+ * second one. */
+export type ResolvedMap = Map<string, { id: string; sig: string; name: string }>;
 
 const decisionSignature = (m: ReviewMaterial) =>
   [m.matchId ?? "", m.genericKey ?? "", m.lotId ?? "", m.visual ? "visual" : ""].join("|");
+
+const CATEGORY_FOR_KIND: Record<IdentifyMaterial["kind"], string> = {
+  bead: "Beads",
+  stone: "Cabochons",
+  hardware: "Findings",
+};
 
 export function planFromResult(result: IdentifyResult, description: string | null): ReviewPlan {
   return {
@@ -65,6 +74,7 @@ export function planFromResult(result: IdentifyResult, description: string | nul
     strand: result.strand,
     lengthIn: result.strand_length_in ?? DEFAULT_LENGTH_IN,
     description,
+    droppedRefs: result.dropped_refs,
   };
 }
 
@@ -72,12 +82,6 @@ export function planFromResult(result: IdentifyResult, description: string | nul
  * visual to create from. Anything else needs the owner to pick one. */
 export const isResolvable = (m: ReviewMaterial) =>
   !!m.matchId || !!m.genericKey || !!m.visual;
-
-export const CATEGORY_FOR_KIND: Record<IdentifyMaterial["kind"], string> = {
-  bead: "Beads",
-  stone: "Cabochons",
-  hardware: "Findings",
-};
 
 /** Upload the photos as transient copies and ask for the identification. */
 export async function identifyPhotos(
@@ -102,21 +106,29 @@ export async function identifyPhotos(
   return result as IdentifyResult;
 }
 
-/** Create or resolve each kept material once. Returns ref → material id, and
- * adds to `resolved` as it goes so a retry skips what already exists. */
+/** Create or resolve each kept material once. Fills `resolved` as it goes. */
 export async function resolveMaterials(
   plan: ReviewPlan,
-  lotRows: Material[],
+  lots: Material[],
   resolved: ResolvedMap
 ): Promise<void> {
   for (const m of plan.materials) {
     if (m.removed) continue;
     const sig = decisionSignature(m);
     const done = resolved.get(m.ref);
-    if (done && done.sig === sig) continue;
+    if (done && done.sig === sig) {
+      // Same decision as before: reuse the row. A rename made after a failed
+      // save goes to the row we already created, not to a second one. Owned
+      // rows (matches) and catalog rows keep their own names.
+      if (!m.matchId && !m.genericKey && done.name !== m.name) {
+        await updateMaterial(done.id, { name: m.name });
+        resolved.set(m.ref, { ...done, name: m.name });
+      }
+      continue;
+    }
 
     if (m.matchId) {
-      resolved.set(m.ref, { id: m.matchId, sig });
+      resolved.set(m.ref, { id: m.matchId, sig, name: m.name });
       continue;
     }
 
@@ -124,7 +136,7 @@ export async function resolveMaterials(
       const entry = GENERIC_CATALOG.find((e) => e.key === m.genericKey);
       if (!entry) throw new Error(`Unknown catalog item for "${m.name}".`);
       const row = await ensureGenericMaterial(entry);
-      resolved.set(m.ref, { id: row.id, sig });
+      resolved.set(m.ref, { id: row.id, sig, name: m.name });
       continue;
     }
 
@@ -132,7 +144,7 @@ export async function resolveMaterials(
 
     const category = CATEGORY_FOR_KIND[m.kind];
     if (m.lotId) {
-      const lot = lotRows.find((l) => l.id === m.lotId);
+      const lot = lots.find((l) => l.id === m.lotId);
       if (!lot) throw new Error(`The lot for "${m.name}" is no longer in inventory.`);
       // Stock and cost are the owner's to enter later (see the lot panel), so
       // the row starts at zero, the same as a new material without a lot.
@@ -142,9 +154,9 @@ export async function resolveMaterials(
         quantity: 0,
         unit_type: "piece",
         lot_cost: 0,
+        visual: m.visual,
       });
-      await updateMaterial(row.id, { visual: m.visual });
-      resolved.set(m.ref, { id: row.id, sig });
+      resolved.set(m.ref, { id: row.id, sig, name: m.name });
       continue;
     }
 
@@ -160,12 +172,13 @@ export async function resolveMaterials(
       },
     ]);
     if (!row) throw new Error(`Could not create "${m.name}".`);
-    resolved.set(m.ref, { id: row.id, sig });
+    resolved.set(m.ref, { id: row.id, sig, name: m.name });
   }
 }
 
-/** The strand as design beads, skipping removed materials and any ref that
- * didn't resolve. Returns the count skipped so the owner can be told. */
+/** The strand as design beads: skips removed materials, refs that didn't
+ * resolve, and anything past the board's bead cap. Returns how many were
+ * skipped so the owner can be told. */
 export function beadsFromPlan(
   plan: ReviewPlan,
   resolved: ResolvedMap
@@ -175,7 +188,7 @@ export function beadsFromPlan(
   const beads: DesignBead[] = [];
   for (const ref of plan.strand) {
     const id = resolved.get(ref)?.id;
-    if (!id || removed.has(ref)) {
+    if (!id || removed.has(ref) || beads.length >= MAX_BEADS) {
       skipped += 1;
       continue;
     }
@@ -205,14 +218,15 @@ export async function createImportedDesign(
     status: "finished",
   });
 
+  const skippedTotal = skipped + plan.droppedRefs;
   let photoError: string | null = null;
   try {
     const paths: string[] = [];
     for (const file of photos) paths.push(await uploadDesignPhoto(design.id, file));
     const saved = await updateDesign(design.id, { photo_paths: paths });
-    return { design: saved, photoError, skipped };
+    return { design: saved, photoError, skipped: skippedTotal };
   } catch (e) {
     photoError = e instanceof Error ? e.message : "Photos could not be saved.";
-    return { design, photoError, skipped };
+    return { design, photoError, skipped: skippedTotal };
   }
 }

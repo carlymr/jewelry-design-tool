@@ -165,6 +165,9 @@ export type DesignStatus = (typeof DESIGN_STATUSES)[number];
  * too and must not import the browser Supabase client. */
 export const MAX_DESIGN_PHOTOS = 6;
 
+/** The board holds at most this many elements on a strand (DesignBoard). */
+export const MAX_BEADS = 500;
+
 /** Package units offered for Etsy's calculated shipping (a subset of Etsy's
  * enums). Here, not in lib/etsy.ts, so the publish route can validate with
  * them without importing the browser Supabase client. */
