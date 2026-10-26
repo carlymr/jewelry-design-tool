@@ -310,3 +310,28 @@ export function colorFamilyOf(visual: BeadVisual | null | undefined): ColorFamil
   if (h < 300) return "purple";
   return "pink";
 }
+
+/** A plain visual for a shape the owner describes by hand, or a bare starting
+ * point for a catalog finding: solid, glossy, undrilled. Finish, pattern and
+ * drill are refined later in the material's detail view. */
+export function plainVisual(opts: {
+  shape: BeadVisual["shape"];
+  lengthMm: number;
+  widthMm: number;
+  color: string;
+}): BeadVisual {
+  return {
+    shape: opts.shape,
+    length_mm: opts.lengthMm,
+    width_mm: opts.widthMm,
+    color: opts.color,
+    color_family: null,
+    color_secondary: null,
+    finish: "glossy",
+    pattern: "solid",
+    faceted: false,
+    drill: null,
+    outline: opts.shape === "cabochon" ? "oval" : null,
+    turn: null,
+  };
+}
