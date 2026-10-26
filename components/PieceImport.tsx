@@ -217,20 +217,28 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
             </label>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Photos
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(e) => {
-                    const picked = Array.from(e.target.files ?? []).slice(0, 4);
-                    setFiles(picked);
-                    e.target.value = "";
-                  }}
-                  className="mt-1 block text-sm"
-                />
-              </label>
+              <span className="block text-sm font-medium text-gray-700">Photos</span>
+              <div className="mt-1 flex flex-wrap items-center gap-3">
+                <label className="inline-flex cursor-pointer items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50 focus-within:ring-2 focus-within:ring-gray-900 focus-within:ring-offset-2">
+                  {files.length > 0 ? "Choose different photos" : "Choose photos"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files ?? []).slice(0, 4);
+                      setFiles(picked);
+                      e.target.value = "";
+                    }}
+                    className="sr-only"
+                  />
+                </label>
+                <span className="text-sm text-gray-600">
+                  {files.length === 0
+                    ? "No photos yet"
+                    : `${files.length} photo${files.length === 1 ? "" : "s"} selected`}
+                </span>
+              </div>
               <p className="mt-1 text-xs text-gray-500">{PHOTO_TIPS}</p>
               {previews.length > 0 && (
                 <div className="mt-2 flex gap-2 overflow-x-auto">
