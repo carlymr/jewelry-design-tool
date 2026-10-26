@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import MaterialDetailModal from "@/components/MaterialDetail";
 import StrandPreview, { type PreviewElement } from "@/components/StrandPreview";
 import type { Design, Material } from "@/lib/types";
-import type { BeadVisual } from "@/lib/bead-visual";
+import { BEAD_SHAPES, COMPONENT_SHAPES, plainVisual, type BeadVisual } from "@/lib/bead-visual";
 import { GENERIC_CATALOG, isGeneric } from "@/lib/generic-catalog";
 import { isLot } from "@/lib/lots";
 import { namingIssue } from "@/lib/naming";
@@ -15,6 +15,7 @@ import {
   isResolvable,
   planFromResult,
   resolveMaterials,
+  strandUsage,
   type ResolvedMap,
   type ReviewMaterial,
   type ReviewPlan,
@@ -50,6 +51,10 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
   const [viewingId, setViewingId] = useState<string | null>(null);
   // The photos become the design's listing photos unless the owner unticks this.
   const [keepPhotos, setKeepPhotos] = useState(true);
+  const [adding, setAdding] = useState(false);
+  // The run of strand elements selected for reassignment, by index.
+  const [selected, setSelected] = useState<{ start: number; end: number } | null>(null);
+  const [anchor, setAnchor] = useState<number | null>(null);
   // Materials created for the current plan, kept across a failed save so a
   // retry reuses them. Cleared whenever a new identification replaces the plan.
   const resolved = useRef<ResolvedMap>(new Map());
@@ -142,8 +147,82 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
   // and needs a decision before the design can be created.
   const existing = plan?.materials.filter((m) => m.matchId || m.genericKey) ?? [];
   const fresh = plan?.materials.filter((m) => !m.matchId && !m.genericKey) ?? [];
-  const unresolved = (plan?.materials ?? []).filter((m) => !m.removed && !isResolvable(m));
+  // How many strand elements each material is used for. Unused materials are
+  // not created, and don't need a pick.
+  const used = useMemo(() => (plan ? strandUsage(plan) : new Map<string, number>()), [plan]);
+  const unresolved = (plan?.materials ?? []).filter(
+    (m) => !m.removed && (used.get(m.ref) ?? 0) > 0 && !isResolvable(m)
+  );
   const canCreate = !!plan && unresolved.length === 0 && lengthOk && !busy;
+
+  // The visual an element draws with: the owner's row for a match, the catalog
+  // entry for a finding, otherwise the model's proposal.
+  const visualOfRef = (ref: string): BeadVisual | null => {
+    const m = plan?.materials.find((x) => x.ref === ref);
+    if (!m) return null;
+    return (
+      (m.matchId ? byId.get(m.matchId)?.visual : null) ??
+      (m.genericKey ? genericByKey.get(m.genericKey)?.visual : null) ??
+      m.visual ??
+      null
+    );
+  };
+
+  const addMaterial = (input: {
+    name: string;
+    kind: ReviewMaterial["kind"];
+    shape: BeadVisual["shape"];
+    lengthMm: number;
+    widthMm: number;
+    color: string;
+  }) => {
+    setPlan((p) =>
+      p && {
+        ...p,
+        materials: [
+          ...p.materials,
+          {
+            ref: `added-${Date.now()}`,
+            kind: input.kind,
+            name: input.name.trim(),
+            confidence: "high",
+            matchId: null,
+            genericKey: null,
+            lotId: null,
+            visual: plainVisual({
+              shape: input.shape,
+              lengthMm: input.lengthMm,
+              widthMm: input.widthMm,
+              color: input.color,
+            }),
+            removed: false,
+          },
+        ],
+      }
+    );
+    setAdding(false);
+  };
+
+  // Click an element to select it, shift-click another to select the run
+  // between them, then choose the material for the whole selection.
+  const pickElement = (i: number, shift: boolean) => {
+    if (shift && anchor !== null) {
+      setSelected({ start: Math.min(anchor, i), end: Math.max(anchor, i) });
+    } else {
+      setAnchor(i);
+      setSelected({ start: i, end: i });
+    }
+  };
+
+  const reassignSelected = (ref: string) => {
+    if (!plan || !selected || !ref) return;
+    setPlan({
+      ...plan,
+      strand: plan.strand.map((r, i) => (i >= selected.start && i <= selected.end ? ref : r)),
+    });
+    setSelected(null);
+    setAnchor(null);
+  };
 
   const create = async () => {
     if (!plan) return;
@@ -339,6 +418,7 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
                     material={m}
                     row={m.matchId ? byId.get(m.matchId) ?? null : null}
                     genericName={m.genericKey ? genericByKey.get(m.genericKey)?.name : undefined}
+                    uses={used.get(m.ref) ?? 0}
                     inventory={inventory}
                     onView={setViewingId}
                     onChange={(change) => updateMaterial(m.ref, change)}
@@ -361,6 +441,7 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
                     material={m}
                     lots={lots}
                     lotRow={m.lotId ? byId.get(m.lotId) ?? null : null}
+                    uses={used.get(m.ref) ?? 0}
                     inventory={inventory}
                     onView={setViewingId}
                     onChange={(change) => updateMaterial(m.ref, change)}
@@ -368,6 +449,89 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
                 ))}
               </section>
             )}
+
+            <section aria-labelledby="add-heading" className="space-y-2">
+              <h3 id="add-heading" className="sr-only">Add a material</h3>
+              {adding ? (
+                <AddMaterialForm onAdd={addMaterial} onCancel={() => setAdding(false)} />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAdding(true)}
+                  className="text-sm text-gray-800 underline"
+                >
+                  + Add a material that isn&apos;t listed
+                </button>
+              )}
+            </section>
+
+            <details className="rounded-md border border-gray-200 p-3" open={!!selected || undefined}>
+              <summary className="cursor-pointer text-sm font-semibold text-gray-900">
+                Which material is each element?
+              </summary>
+              <p className="mt-2 text-xs text-gray-600">
+                Click an element, shift-click another to select the run between them, then choose
+                its material. Use this to split a material the model merged, or to correct a match
+                that only applies to some elements.
+              </p>
+              <ol className="mt-3 flex flex-wrap gap-1.5">
+                {plan.strand.map((ref, i) => {
+                  const m = plan.materials.find((x) => x.ref === ref);
+                  const inRun = !!selected && i >= selected.start && i <= selected.end;
+                  return (
+                    <li key={i}>
+                      <button
+                        type="button"
+                        aria-pressed={inRun}
+                        title={m?.name ?? "Unassigned"}
+                        onClick={(e) => pickElement(i, e.shiftKey)}
+                        className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs ${
+                          inRun ? "border-gray-900 ring-2 ring-gray-900" : "border-gray-200"
+                        } ${m?.removed ? "line-through opacity-40" : ""}`}
+                      >
+                        <span
+                          className="inline-block h-3 w-3 rounded-full border border-gray-300"
+                          style={{ backgroundColor: visualOfRef(ref)?.color ?? "#d1d5db" }}
+                        />
+                        {i + 1}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+              {selected && (
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-gray-700">
+                    {selected.end - selected.start + 1} selected, assign to
+                  </span>
+                  <select
+                    value=""
+                    onChange={(e) => reassignSelected(e.target.value)}
+                    aria-label="Assign selected elements to material"
+                    className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm"
+                  >
+                    <option value="">Choose a material…</option>
+                    {plan.materials
+                      .filter((m) => !m.removed)
+                      .map((m) => (
+                        <option key={m.ref} value={m.ref}>
+                          {m.name || "(unnamed)"}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelected(null);
+                      setAnchor(null);
+                    }}
+                    className="text-xs text-gray-600 underline"
+                  >
+                    Clear selection
+                  </button>
+                </div>
+              )}
+            </details>
 
             {unresolved.length > 0 && (
               <p className="text-sm text-amber-800">
@@ -451,6 +615,7 @@ function MatchedRow({
   material: m,
   row,
   genericName,
+  uses,
   inventory,
   onView,
   onChange,
@@ -458,6 +623,7 @@ function MatchedRow({
   material: ReviewMaterial;
   row: Material | null;
   genericName: string | undefined;
+  uses: number;
   inventory: Material[];
   onView: (id: string) => void;
   onChange: (change: Partial<ReviewMaterial>) => void;
@@ -465,9 +631,10 @@ function MatchedRow({
   const [picking, setPicking] = useState(false);
   const color = row?.visual?.color ?? "#d1d5db";
   const title = row?.name ?? genericName ?? m.name;
-  const detail = row
-    ? [row.category, sizeLabel(row.visual)].filter(Boolean).join(" · ")
-    : "Catalog finding";
+  const detail = [
+    row ? [row.category, sizeLabel(row.visual)].filter(Boolean).join(" · ") : "Catalog finding",
+    `${uses} in strand`,
+  ].join(" · ");
 
   return (
     <div
@@ -504,6 +671,16 @@ function MatchedRow({
             {picking ? "Close" : "Change"}
           </button>
         )}
+        {!m.genericKey && (
+          <button
+            type="button"
+            onClick={() => onChange({ matchId: null, lotId: null })}
+            className="text-xs text-gray-700 underline"
+            title="This is a different material: name it as new, for example one from a lot"
+          >
+            Not this one: create as new
+          </button>
+        )}
         <RemoveToggle removed={m.removed} onChange={onChange} />
       </div>
 
@@ -526,6 +703,7 @@ function NewRow({
   material: m,
   lots,
   lotRow,
+  uses,
   inventory,
   onView,
   onChange,
@@ -533,6 +711,7 @@ function NewRow({
   material: ReviewMaterial;
   lots: Material[];
   lotRow: Material | null;
+  uses: number;
   inventory: Material[];
   onView: (id: string) => void;
   onChange: (change: Partial<ReviewMaterial>) => void;
@@ -671,3 +850,135 @@ function ExistingPicker({
     </div>
   );
 }
+
+const KIND_SHAPES: Record<ReviewMaterial["kind"], readonly BeadVisual["shape"][]> = {
+  bead: BEAD_SHAPES,
+  stone: ["cabochon"],
+  hardware: COMPONENT_SHAPES,
+};
+
+function AddMaterialForm({
+  onAdd,
+  onCancel,
+}: {
+  onAdd: (input: {
+    name: string;
+    kind: ReviewMaterial["kind"];
+    shape: BeadVisual["shape"];
+    lengthMm: number;
+    widthMm: number;
+    color: string;
+  }) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<ReviewMaterial["kind"]>("bead");
+  const [shape, setShape] = useState<BeadVisual["shape"]>("round");
+  const [lengthText, setLengthText] = useState("6");
+  const [widthText, setWidthText] = useState("6");
+  const [color, setColor] = useState("#9ca3af");
+
+  const lengthMm = parseFloat(lengthText);
+  const widthMm = parseFloat(widthText);
+  const valid =
+    name.trim().length > 0 &&
+    Number.isFinite(lengthMm) &&
+    lengthMm > 0 &&
+    Number.isFinite(widthMm) &&
+    widthMm > 0;
+
+  return (
+    <div className="rounded-md border border-gray-300 bg-white p-3 space-y-3">
+      <p className="text-sm font-medium text-gray-900">New material</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="text-sm text-gray-700">
+          Name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Tiger's Eye Beads 6mm Round"
+            className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+          />
+        </label>
+        <label className="text-sm text-gray-700">
+          Kind
+          <select
+            value={kind}
+            onChange={(e) => {
+              const next = e.target.value as ReviewMaterial["kind"];
+              setKind(next);
+              setShape(KIND_SHAPES[next][0]);
+            }}
+            className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm"
+          >
+            <option value="bead">Bead</option>
+            <option value="stone">Cabochon or pendant stone</option>
+            <option value="hardware">Hardware</option>
+          </select>
+        </label>
+        <label className="text-sm text-gray-700">
+          Shape
+          <select
+            value={shape}
+            onChange={(e) => setShape(e.target.value as BeadVisual["shape"])}
+            className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm"
+          >
+            {KIND_SHAPES[kind].map((sh) => (
+              <option key={sh} value={sh}>
+                {sh}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="flex gap-3">
+          <label className="text-sm text-gray-700">
+            Length (mm)
+            <input
+              type="number"
+              step="0.5"
+              value={lengthText}
+              onChange={(e) => setLengthText(e.target.value)}
+              className="mt-1 w-24 rounded-md border border-gray-300 px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="text-sm text-gray-700">
+            Width (mm)
+            <input
+              type="number"
+              step="0.5"
+              value={widthText}
+              onChange={(e) => setWidthText(e.target.value)}
+              className="mt-1 w-24 rounded-md border border-gray-300 px-2 py-1 text-sm"
+            />
+          </label>
+        </div>
+        <label className="text-sm text-gray-700">
+          Colour
+          <input
+            type="color"
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+            className="mt-1 h-8 w-16 rounded border border-gray-300 bg-white"
+          />
+        </label>
+      </div>
+      <p className="text-xs text-gray-500">
+        Finish and drill can be refined in the details once the material is created.
+      </p>
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onCancel} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700">
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={!valid}
+          onClick={() => onAdd({ name, kind, shape, lengthMm, widthMm, color })}
+          className="rounded-md bg-gray-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+        >
+          Add material
+        </button>
+      </div>
+    </div>
+  );
+}
+

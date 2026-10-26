@@ -1,7 +1,13 @@
 import { apiHeaders } from "./auth";
 import type { BeadVisual } from "./bead-visual";
 import { GENERIC_CATALOG } from "./generic-catalog";
-import { addMaterials, ensureGenericMaterial, specifyFromLot, updateMaterial } from "./materials";
+import {
+  addMaterials,
+  ensureGenericMaterial,
+  NEW_MATERIAL_DEFAULTS,
+  specifyFromLot,
+  updateMaterial,
+} from "./materials";
 import { createDesign, updateDesign } from "./designs";
 import { uploadDesignPhoto } from "./design-photos";
 import { uploadForProcessing } from "./photo-upload";
@@ -81,6 +87,13 @@ export function planFromResult(result: IdentifyResult, description: string | nul
   };
 }
 
+/** How many strand elements use each ref. */
+export const strandUsage = (plan: ReviewPlan) => {
+  const counts = new Map<string, number>();
+  for (const ref of plan.strand) counts.set(ref, (counts.get(ref) ?? 0) + 1);
+  return counts;
+};
+
 /** A material is resolvable when it has an owned match, a catalog entry, or a
  * visual to create from. Anything else needs the owner to pick one. */
 export const isResolvable = (m: ReviewMaterial) =>
@@ -115,8 +128,11 @@ export async function resolveMaterials(
   lots: Material[],
   resolved: ResolvedMap
 ): Promise<void> {
+  // Materials no element uses are not created: a stray row would only clutter
+  // the inventory.
+  const used = strandUsage(plan);
   for (const m of plan.materials) {
-    if (m.removed) continue;
+    if (m.removed || !used.has(m.ref)) continue;
     const sig = decisionSignature(m);
     const done = resolved.get(m.ref);
     if (done && done.sig === sig) {
@@ -165,12 +181,9 @@ export async function resolveMaterials(
 
     const [row] = await addMaterials([
       {
+        ...NEW_MATERIAL_DEFAULTS,
         name: m.name,
         category,
-        quantity: 0,
-        unit_type: "piece",
-        unit_cost: 0,
-        supplier: "",
         visual: m.visual,
       },
     ]);

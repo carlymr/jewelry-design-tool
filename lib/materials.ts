@@ -15,6 +15,15 @@ export async function listMaterials(): Promise<Material[]> {
   return data ?? [];
 }
 
+/** The fields every new material starts with. Callers set the name, category
+ * and whatever they know; stock and cost are zero until the owner enters them. */
+export const NEW_MATERIAL_DEFAULTS = {
+  quantity: 0,
+  unit_cost: 0,
+  unit_type: "piece",
+  supplier: "",
+} as const;
+
 export async function addMaterials(materials: NewMaterial[]): Promise<Material[]> {
   // Stamp the owner client-side until the 0006 lockdown gives user_id a
   // DB-side default of auth.uid().

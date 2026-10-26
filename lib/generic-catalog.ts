@@ -1,4 +1,4 @@
-import { BeadVisualSchema, type BeadVisual, type ColorFamily } from "./bead-visual";
+import { BeadVisualSchema, plainVisual, type BeadVisual, type ColorFamily } from "./bead-visual";
 import type { Material } from "./types";
 
 // Built-in catalog of generic findings (GRA-17): the jump rings, crimps,
@@ -66,18 +66,9 @@ const metal = (
   length_mm: number,
   width_mm: number
 ): BeadVisual => ({
-  shape,
-  length_mm,
-  width_mm,
-  color: finish.color,
+  ...plainVisual({ shape, lengthMm: length_mm, widthMm: width_mm, color: finish.color }),
   color_family: finish.family,
-  color_secondary: null,
   finish: "metallic",
-  pattern: "solid",
-  faceted: false,
-  drill: null,
-  outline: null,
-  turn: null,
 });
 
 const entry = (

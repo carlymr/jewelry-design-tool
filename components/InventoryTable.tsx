@@ -19,7 +19,7 @@ import PhotoVisualButton from "@/components/PhotoVisualButton";
 import MaterialDetailModal from "@/components/MaterialDetail";
 import LotSpecifyModal from "@/components/LotSpecify";
 import LotBadge from "@/components/LotBadge";
-import { addMaterials, deleteMaterial, updateMaterial } from "@/lib/materials";
+import { addMaterials, deleteMaterial, NEW_MATERIAL_DEFAULTS, updateMaterial } from "@/lib/materials";
 import { faceUrlOf, useFaceUrls } from "@/lib/material-faces";
 import { colorFamilyOf, formatSizeMm, sizeBucketOf } from "@/lib/bead-visual";
 import { isGeneric } from "@/lib/generic-catalog";
@@ -37,12 +37,9 @@ type SortKey = "name" | "category" | "unit_cost" | "quantity";
 const PAGE_SIZE = 25;
 
 const EMPTY_FORM: NewMaterial = {
+  ...NEW_MATERIAL_DEFAULTS,
   name: "",
   category: "Beads",
-  unit_cost: 0,
-  quantity: 0,
-  unit_type: "piece",
-  supplier: "",
 };
 
 interface Props {
@@ -243,12 +240,12 @@ export default function InventoryTable({ materials, loading, onChanged }: Props)
         const values = parseCSVLine(line);
         if (values.length < 3 || !values[0]) continue;
         newMaterials.push({
+          ...NEW_MATERIAL_DEFAULTS,
           name: values[0],
           category: values[1] || "Other",
           unit_cost: parseFloat(values[2]) || 0,
-          unit_type: values[3] || "piece",
+          unit_type: values[3] || NEW_MATERIAL_DEFAULTS.unit_type,
           quantity: parseFloat(values[4]) || 0,
-          supplier: "",
         });
       }
       if (newMaterials.length === 0) {
