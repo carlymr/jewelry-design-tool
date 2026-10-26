@@ -21,10 +21,10 @@ Examples: "Kyanite Beads 3mm Round Faceted", "Galaxy Tiger Eye Beads 8mm Round",
  * one at a time; a slash or "or" means the name is two guesses. */
 export function namingIssue(name: string): string | null {
   if (/\bmix(ed)?\b|\bassort|\brandom\b/i.test(name)) {
-    return "Mixed or assorted names are not allowed. Name each stone on its own.";
+    return "This name looks like it covers more than one stone. Consider adding each stone as its own material.";
   }
   if (/\s\/\s|\bor\b/i.test(name)) {
-    return "A slash or “or” names two materials. Pick the one you can see and name only that.";
+    return "This name may cover two stones. If you can only see one, name that one and mark it low confidence.";
   }
   return null;
 }

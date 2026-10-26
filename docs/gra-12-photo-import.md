@@ -32,14 +32,22 @@ Findings:
 - **Detail level:** each distinct bead, stone or pendant type is its own material (stone family, shape, size). Hardware that the generic catalog covers (jump rings, crimps, spacer balls, lobster and toggle clasps) is placed from the catalog. Its row is created on confirm if it doesn't exist yet, and no inventory pick is needed. Other hardware (bails, ring connectors, chain, wire) becomes a new material on confirm.
 - **New materials:** created on confirm with no cost and zero stock, so the owner sets stock before stringing.
 - **Lots:** the owner imports a lot first through the receipt flow. In review, an unmatched element can be assigned to an existing lot. That goes through the same path as specifying a material from a lot, so provenance and the lot's remaining value stay correct. The lot's cost slice is left at zero for the owner to fill in later. All unsplit lots (name and listing title) go to the model, which suggests one only when the listing clearly fits. Automatic lot flagging in receipt extraction is tracked as GRA-52.
-- **Review:** a search-and-swap, not a form. The photo is shown beside the proposed strand. Corrections happen per material (match, new, lot, rename, remove). Element order is fixed in review and corrected on the board.
+- **Review:** matched materials from the inventory come first, with name, category and size, and a "View details" button for each. Anything new is in its own section, with a name field, a lot picker and a "use an existing material instead" picker. The layout shows:
+  - a design name field (blank falls back to "Imported piece", capped at 120 characters),
+  - a "Preview as worn" picture of the strand, drawn with the board's curve and bead renderer,
+  - a "+ Add a material" form for anything the model missed,
+  - a collapsed "Which material is each element?" panel, where a click or shift-click selects a run and assigns it to any material, so a merged material can be split or a match corrected for some elements only,
+  - "Not this one: create as new" on matched rows, so a lot can supply the material,
+  - a "Keep these photos as the design's listing photos" checkbox, on by default.
+- **Naming:** new material names follow the shared standard in `lib/naming.ts`. The review flags names that look like mixes or slash-separated pairs. The flag is advisory and doesn't block creation.
+- **Unused materials** (no strand element uses them) are not created.
 
 ## Flow
 
 1. **Capture.** The owner enters an optional description, adds one to four photos, and clicks Identify. Each photo goes through the existing transient upload to the receipts bucket.
-2. **Identify.** `POST /api/identify-piece` (Claude Opus 5.5) gets the photo paths, the description, a compact inventory list, the unsplit lots and the generic catalog keys. It returns distinct materials and the strand order as references to those materials. Ids and keys are checked against the lists it was given.
-3. **Review.** The owner corrects materials and checks the strand order and length.
-4. **Save.** Materials are created or resolved in order, then the design is created with status `finished`, and the photos are kept in `design-photos` and attached. The design then opens on the board. A retry after a partial failure reuses the materials already created.
+2. **Identify.** `POST /api/identify-piece` (Claude Opus 5.5) gets the photo paths, the description, a compact inventory list, the unsplit lots and the generic catalog keys. The prompt includes the shared naming standard, and asks for one material per stone, never a combined name. It returns distinct materials and the strand order as references to those materials. Ids and keys are checked against the lists it was given.
+3. **Review.** The owner checks matched materials, names and assigns new ones (or picks from lots), reassigns elements where needed, sets the name and length, and decides whether to keep the photos.
+4. **Save.** Materials are created or resolved in order (skipping any no element uses), then the design is created with status `finished`. If "keep photos" is ticked, the photos are kept in `design-photos` and attached, with the first one primary. The design then opens on the board. A retry after a partial failure reuses the rows already created, as long as the owner's decision for that element hasn't changed; a rename updates the existing row.
 
 ## API contract
 
@@ -66,7 +74,7 @@ Response:
     matched_material_id,                   // an inventory id, or null
     lot_id,                                // a lot id, or null (only for new materials)
     generic_key,                           // a generic catalog key, or null
-    visual,                                // BeadVisual for new non-generic items, else null
+    visual,                                // BeadVisual for every material; used only if it is created as new
     confidence: "high" | "medium" | "low"
   }],
   strand: string[],                        // refs, one end to the other; excludes clasp and chain
@@ -75,14 +83,15 @@ Response:
 }
 ```
 
-Server-side checks (`sanitizeIdentification` in `lib/identify.ts`): ids, lot ids and generic keys must come from the request lists, and unknown ones are cleared. New materials get `normalizeOrientation()`. Strand refs with no material are dropped and counted.
+Server-side checks (`sanitizeIdentification` in `lib/identify.ts`): ids, lot ids and generic keys must come from the request lists, and unknown ones are cleared. Every returned visual gets `normalizeOrientation()`. Strand refs with no material are dropped and counted.
 
 ## Implementation notes
 
 - **Rate limit:** `identify-piece` is added to `AiRoute` with a 20-per-hour cap. The `record_ai_call` function (migration 0012) only accepts known routes. Migration `0018_identify_piece_route.sql` adds the new one. It has to be applied remotely (see CLAUDE.md). Until then the rate limiter fails open, as designed.
 - **No schema changes** beyond that route whitelist. Materials, designs, design photos and lots already have the fields the import needs.
-- **Photos:** the transient copy is for identification and is deleted by the route. The kept copy is uploaded to `design-photos` after the design row exists, because the folder is keyed by design id.
-- **Known limitations for v1:** no per-element editing in review (order is fixed; correct it on the board). Stock is zero for new materials. The strand is not checked against the ruler; the owner confirms the length.
+- **Photos:** the transient copy is for identification. The route deletes the uploaded photos on every exit after the body is parsed, including the rate-limit and config errors, and only paths in the caller's own folder are ever removed. The kept copy is uploaded to `design-photos` after the design row exists, because the folder is keyed by design id, and only if "keep photos" is ticked.
+- **Shared code:** the naming standard lives in `lib/naming.ts` (also used by the receipt extractor). The per-element spacing rules live in `lib/strand-spacing.ts` (also used by the board and the preview). The new-row defaults are `NEW_MATERIAL_DEFAULTS` in `lib/materials.ts`, and the plain visual builder is `plainVisual` in `lib/bead-visual.ts`.
+- **Known limitations for v1:** element order is fixed in review; the material of any element or run can be reassigned, but elements can't be added, removed or reordered (do that on the board). Stock is zero for new materials. The strand is not checked against the ruler; the owner confirms the length. The preview shows generated faces, not cabochon photos.
 
 ## Verified so far
 

@@ -94,10 +94,12 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
 
   // What each strand element will look like: the owner's own row for a match,
   // the catalog visual for a finding, otherwise the model's proposal.
+  const planStrand = plan?.strand;
+  const planMaterials = plan?.materials;
   const previewElements = useMemo<PreviewElement[]>(() => {
-    if (!plan) return [];
-    const byRef = new Map(plan.materials.map((m) => [m.ref, m]));
-    return plan.strand.flatMap((ref, i) => {
+    if (!planStrand || !planMaterials) return [];
+    const byRef = new Map(planMaterials.map((m) => [m.ref, m]));
+    return planStrand.flatMap((ref, i) => {
       const m = byRef.get(ref);
       if (!m || m.removed) return [];
       const visual =
@@ -107,7 +109,7 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
         null;
       return [{ key: `${ref}-${i}`, visual }];
     });
-  }, [plan, byId, genericByKey]);
+  }, [planStrand, planMaterials, byId, genericByKey]);
 
   const identify = async () => {
     setBusy(true);
@@ -851,6 +853,12 @@ function ExistingPicker({
   );
 }
 
+const DEFAULT_SHAPE: Record<ReviewMaterial["kind"], BeadVisual["shape"]> = {
+  bead: "round",
+  stone: "cabochon",
+  hardware: "jump-ring",
+};
+
 const KIND_SHAPES: Record<ReviewMaterial["kind"], readonly BeadVisual["shape"][]> = {
   bead: BEAD_SHAPES,
   stone: ["cabochon"],
@@ -873,12 +881,14 @@ function AddMaterialForm({
 }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<ReviewMaterial["kind"]>("bead");
-  const [shape, setShape] = useState<BeadVisual["shape"]>("round");
+  const [shape, setShape] = useState<BeadVisual["shape"]>(DEFAULT_SHAPE.bead);
   const [lengthText, setLengthText] = useState("6");
   const [widthText, setWidthText] = useState("6");
   const [color, setColor] = useState("#9ca3af");
 
-  const lengthMm = parseFloat(lengthText);
+  // A chain element is always one 1-inch segment, so its length is fixed.
+  const isChain = shape === "chain";
+  const lengthMm = isChain ? 25.4 : parseFloat(lengthText);
   const widthMm = parseFloat(widthText);
   const valid =
     name.trim().length > 0 &&
@@ -907,7 +917,7 @@ function AddMaterialForm({
             onChange={(e) => {
               const next = e.target.value as ReviewMaterial["kind"];
               setKind(next);
-              setShape(KIND_SHAPES[next][0]);
+              setShape(DEFAULT_SHAPE[next]);
             }}
             className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm"
           >
@@ -936,9 +946,10 @@ function AddMaterialForm({
             <input
               type="number"
               step="0.5"
-              value={lengthText}
+              value={isChain ? "25.4" : lengthText}
+              disabled={isChain}
               onChange={(e) => setLengthText(e.target.value)}
-              className="mt-1 w-24 rounded-md border border-gray-300 px-2 py-1 text-sm"
+              className="mt-1 w-24 rounded-md border border-gray-300 px-2 py-1 text-sm disabled:bg-gray-100"
             />
           </label>
           <label className="text-sm text-gray-700">

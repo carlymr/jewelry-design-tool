@@ -97,6 +97,11 @@ export async function POST(request: NextRequest) {
   // The photos are already uploaded by now, so every path from here on must
   // remove them, including the early returns below.
   const storage = storageConfig(request.headers.get("authorization"));
+  // Only paths in the caller's own folder are ever removed. The rest are
+  // rejected below, and cleanup never sees them.
+  const ownPaths = body.photos
+    .map((p) => p.path)
+    .filter((path) => isOwnUpload(path, user.id, IMAGE_EXTENSIONS));
   try {
     const limited = await enforceRateLimit(request, "identify-piece");
     if (limited) return limited;
@@ -106,7 +111,7 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-    if (!body.photos.every((p) => isOwnUpload(p.path, user.id, IMAGE_EXTENSIONS))) {
+    if (ownPaths.length !== body.photos.length) {
       return NextResponse.json({ error: "Invalid storage path." }, { status: 400 });
     }
     if (!storage) {
@@ -188,8 +193,8 @@ export async function POST(request: NextRequest) {
     // Photos are transient: remove every one, whatever the outcome.
     if (storage) {
       await Promise.all(
-        body.photos.map((photo) =>
-          fetch(`${storage.objectUrl}/${photo.path}`, {
+        ownPaths.map((path) =>
+          fetch(`${storage.objectUrl}/${path}`, {
             method: "DELETE",
             headers: storage.headers,
           }).catch(() => {})
