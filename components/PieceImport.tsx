@@ -51,7 +51,9 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
   const [viewingId, setViewingId] = useState<string | null>(null);
   // The photos become the design's listing photos unless the owner unticks this.
   const [keepPhotos, setKeepPhotos] = useState(true);
-  const [adding, setAdding] = useState(false);
+  // Which way a material is being added: a new one typed in, or an existing
+  // inventory row that the model didn't identify.
+  const [adding, setAdding] = useState<"new" | "inventory" | null>(null);
   // The run of strand elements selected for reassignment, by index.
   const [selected, setSelected] = useState<{ start: number; end: number } | null>(null);
   const [anchor, setAnchor] = useState<number | null>(null);
@@ -148,6 +150,7 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
   // Matched and catalog materials are the happy path; everything else is new
   // and needs a decision before the design can be created.
   const existing = plan?.materials.filter((m) => m.matchId || m.genericKey) ?? [];
+  const existingIds = new Set(existing.map((m) => m.matchId).filter((id): id is string => !!id));
   const fresh = plan?.materials.filter((m) => !m.matchId && !m.genericKey) ?? [];
   // How many strand elements each material is used for. Unused materials are
   // not created, and don't need a pick.
@@ -202,7 +205,32 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
         ],
       }
     );
-    setAdding(false);
+    setAdding(null);
+  };
+
+  // An inventory row the model missed: it is a match from the start, so it needs
+  // no visual of its own. The owner assigns elements to it in the strand editor.
+  const addFromInventory = (row: Material) => {
+    setPlan((p) =>
+      p && {
+        ...p,
+        materials: [
+          ...p.materials,
+          {
+            ref: `inv-${row.id}`,
+            kind: CATEGORY_KIND(row.category),
+            name: row.name,
+            confidence: "high",
+            matchId: row.id,
+            genericKey: null,
+            lotId: null,
+            visual: row.visual,
+            removed: false,
+          },
+        ],
+      }
+    );
+    setAdding(null);
   };
 
   // Click an element to select it, shift-click another to select the run
@@ -454,16 +482,35 @@ export default function PieceImport({ materials, onClose, onImported, onMaterial
 
             <section aria-labelledby="add-heading" className="space-y-2">
               <h3 id="add-heading" className="sr-only">Add a material</h3>
-              {adding ? (
-                <AddMaterialForm onAdd={addMaterial} onCancel={() => setAdding(false)} />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setAdding(true)}
-                  className="text-sm text-gray-800 underline"
-                >
-                  + Add a material that isn&apos;t listed
-                </button>
+              {adding === "new" && (
+                <AddMaterialForm onAdd={addMaterial} onCancel={() => setAdding(null)} />
+              )}
+              {adding === "inventory" && (
+                <div className="rounded-md border border-gray-300 bg-white p-3 space-y-2">
+                  <p className="text-sm font-medium text-gray-900">Add from your inventory</p>
+                  <ExistingPicker
+                    inventory={inventory.filter((row) => !existingIds.has(row.id))}
+                    onChoose={(id) => {
+                      const row = byId.get(id);
+                      if (row) addFromInventory(row);
+                    }}
+                  />
+                  <div className="flex justify-end">
+                    <button type="button" onClick={() => setAdding(null)} className="text-xs text-gray-600 underline">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+              {adding === null && (
+                <div className="flex flex-wrap gap-4 text-sm">
+                  <button type="button" onClick={() => setAdding("inventory")} className="text-gray-800 underline">
+                    + Add a material from your inventory
+                  </button>
+                  <button type="button" onClick={() => setAdding("new")} className="text-gray-800 underline">
+                    + Add a new material
+                  </button>
+                </div>
               )}
             </section>
 
@@ -852,6 +899,12 @@ function ExistingPicker({
     </div>
   );
 }
+
+const CATEGORY_KIND = (category: string): ReviewMaterial["kind"] => {
+  if (category === "Cabochons") return "stone";
+  if (category === "Findings") return "hardware";
+  return "bead";
+};
 
 const DEFAULT_SHAPE: Record<ReviewMaterial["kind"], BeadVisual["shape"]> = {
   bead: "round",
